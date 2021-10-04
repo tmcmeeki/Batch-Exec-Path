@@ -19,19 +19,6 @@ ___detailed_class_description_here___
 
 =over 4
 
-=item OBJ->attribute1
-
-tba
-
-=item OBJ->method1
-
-tba
-
-=back
-
-=cut
-
-
 =item 10a.  OBJ->behaviour(EXPR)
 
 Set the path parsing behaviour to one of "w" (Windows-like) or "u" (Unix-like).
@@ -101,39 +88,48 @@ location in which files might be temporarily stored.
 
 Checks if the file specified by PATH exists. Subject to fatal processing.
 
+=back
 
+=cut
+
+use strict;
 
 use parent 'Batch::Exec';
-use strict;
+
+# --- includes ---
 use Carp qw(cluck confess);
 use Data::Dumper;
+use File::HomeDir;
 use Log::Log4perl qw/ get_logger /;
+use Path::Tiny;
 
-# $Header: /cygdrive/c/Users/tmcme/Development/src/perl/RCS/zzz_template.pm,v 1.14 2019/09/14 19:31:50 tomby Exp tomby $
-#
-# Path.pm - cross-platform path handling for the batch executive.
-# History:
-# $Log$
-# --- includes ---
+
 # --- package constants ---
-#use constant PN_TEMP => File::Spec->catfile($ENV{'HOME'}, "tmp");
+use constant ENV_WSL_DISTRO => $ENV{'WSL_DISTRO_NAME'};
+
+use constant DN_HOME => ($ENV{'HOME'} eq '') ? $ENV{'HOME'} : File::HomeDir->my_home;
+use constant DN_MOUNT_WSL => "mnt";
+use constant DN_MOUNT_CYG => "cygdrive";
+use constant DN_ROOT_WSL => path('///wsl$');	# this is a WSL location only
+
+
 # --- package globals ---
+our $AUTOLOAD;
 #our @EXPORT = qw();
 #our @ISA = qw(Exporter);
-# --- package locals ---
-#sub INIT { };
-#sub END { }
-
-our $AUTOLOAD;
 our @ISA;
 our $VERSION = sprintf "%d.%03d", q$Revision: 1.14 $ =~ /(\d+)/g;
+
+
+# --- package locals ---
 my $_n_objects = 0;
+
 my %_attribute = (	# _attributes are restricted; no direct get/set
-	#attribute1 => undef,
-	#attribute2 => undef,
-	#attribute3 => undef,
+	behaviour => undef,	# platform-dependent default, one of: w, u.
+	shellify => 0,		# converts \ to \\ for DOS-like shell exits
 );
 
+#sub INIT { };
 
 sub AUTOLOAD {
 	my $self = shift;
@@ -162,182 +158,6 @@ sub DESTROY {
 	#printf "DEBUG destroy object id [%s]\n", $self->{'_id'});
 
 	-- ${ $self->{_n_objects} };
-}
-
-
-sub _wslroot {	# determine the host location of the WSL distro root raw value
-	my $self = shift;
-
-	return undef unless ($self->on_wsl);
-
-	my $pt = path("/" . DN_ROOT_WSL)->child(ENV_WSL_DISTRO);
-
-	my $dn = $pt->canonpath;
-
-	$self->_log->debug("dn [$dn]");
-
-	return $dn;
-}
-
-
-sub backslasher { # for shell calls converts windows '\' to '\\'
-	my $self = shift;
-	my $pn = shift;
-	confess "SYNTAX: backslasher(EXPR)" unless defined($pn);
-
-	$self->_log->debug("pn [$pn]");
-
-	return $pn unless ($self->shellify);
-
-	$pn =~ s/\\/\\\\/g;
-
-	$self->_log->debug("CONVERTED pn [$pn]");
-
-	return $pn;
-}
-
-
-sub homedir {	# read-only method!
-	return DN_HOME;		# reliable definition of home
-}
-
-
-sub hometmp {	# read-only method!
-	return DN_TMP_HOME;		# nice alternative location for temp files
-}
-
-
-sub hybrid_catdir {	# split a DOS or hybrid_path into tokens and return array
-	my $self = shift;
-	confess "SYNTAX: hybrid_catdir(EXPR, EXPR)" unless (@_);
-
-	my @dn = $self->hybrid_splitdir(@_);
-
-	use Path::Class;
-
-	my $pn = join('/', @dn);
-
-	my $pc = file($pn);	# Path::Class constructor
-	my $dos = $pc->as_foreign('Win32');
-
-	$self->_log->debug("dos [$dos]");
-
-
-	my $dn = join('\\', @dn);
-
-	$self->_log->debug(sprintf "dn [$dn] dn [%s]", Dumper(\@dn));
-
-	return $self->backslasher($dn);
-}
-
-
-sub hybrid_path {
-	my $self = shift;
-	my $pn = shift;
-	confess "SYNTAX: hybrid_path(PATH)" unless defined ($pn);
-
-	return $pn unless ($self->like_windows);
-
-	return $pn if ($self->on_windows);
-
-	my @pn = $self->hybrid_splitdir($pn);
-
-	return $pn unless (@pn);
-
-	my $drive = lc(shift @pn);
-
-	$self->_log->warn("unusual drive letter [$drive]")
-		unless ($drive =~ /[a-z]:/i);
-
-	$drive =~ s/://g;
-
-	$pn = File::Spec->catdir("", $self->hybrid_tld, $drive, @pn);
-
-	$self->_log->debug("pn [$pn]");
-
-	return $pn;
-}
-
-
-sub hybrid_splitdir {	# split a DOS or hybrid_path into tokens and return array
-	my $self = shift;
-	confess "SYNTAX: hybrid_splitdir(PATH, ...)" unless (@_);
-
-	# cannot use File::Spec->splitdir as cygwin paths are unix-like
-	# and we may want to explicitly convert windows-like paths
-	# note that Path::Tiny thinks c:\temp is relative to the CWD and is a file!
-
-	my $re = '[\\\/]';
-
-	my @dn; for my $pn (@_) {
-	
-		my @pn = split(/$re/, $pn);
-
-		push @dn, @pn;
-	}
-	$self->_log->debug(sprintf "dn [%s]", Dumper(\@dn));
-
-	if ($dn[0] =~ /:/) {	# a DOS drive letter and thus root directory
-
-		my $prepend = $self->hybrid_tld;
-
-		if (defined $prepend) {
-
-			$dn[0] = lc $dn[0];
-			$dn[0] =~ s/://;
-
-			unshift @dn, "", $prepend;
-		}
-	} elsif ($dn[0] =~ /\$/) {	# DOS special drive, possibly share
-
-		unshift @dn, "";
-	}
-
-	my $dn = join('/', @dn);
-
-	# Path::Tiny which gets rid of rubbish duplicates
-	my $pn = path($dn);	# a Path::Tiny object now only forward slashes
-
-	$self->_log->debug(sprintf "canonpath [%s]", $pn->canonpath);
-	$self->_log->debug(sprintf "absolute [%s]", $pn->absolute);
-
-	@dn = split(/$re/, $pn->canonpath);
-
-	$self->_log->debug(sprintf "dn [%s]", Dumper(\@dn));
-
-	return @dn;
-}
-
-
-sub hybrid_tld {	# determine the mountpoint for hybrid OS
-	my $self = shift;
-
-	my $mount; if ($self->on_cygwin) {
-
-		$mount = DN_MOUNT_CYG;
-
-	} elsif ($self->on_wsl) {
-
-		$mount = DN_MOUNT_WSL;
-	} else {
-		$self->_log->logconfess("unable to determine platform [$^O]");
-	}
-
-	return $mount;
-}
-
-
-sub is_extant {
-	my $self = shift;
-	my $pn = shift;
-	confess "SYNTAX: is_extant(EXPR)" unless defined ($pn);
-
-	return 1
-		if (-e $pn);
-
-	$self->cough("does not exist [$pn]");
-
-	return 0;	# reverse polarity
 }
 
 
@@ -372,6 +192,177 @@ sub new {
 	# ___ additional class initialisation here ___
 
 	return $self;
+}
+
+
+sub _wslroot {	# determine the host location of the WSL distro root raw value
+	my $self = shift;
+
+	return undef unless ($self->on_wsl);
+
+	my $pt = path("/" . DN_ROOT_WSL)->child(ENV_WSL_DISTRO);
+
+	my $dn = $pt->canonpath;
+
+	$self->log->debug("dn [$dn]");
+
+	return $dn;
+}
+
+
+sub backslasher { # for shell calls converts windows '\' to '\\'
+	my $self = shift;
+	my $pn = shift;
+	confess "SYNTAX: backslasher(EXPR)" unless defined($pn);
+
+	$self->log->debug("pn [$pn]");
+
+	return $pn unless ($self->shellify);
+
+	$pn =~ s/\\/\\\\/g;
+
+	$self->log->debug("CONVERTED pn [$pn]");
+
+	return $pn;
+}
+
+
+sub homedir {	# read-only method!
+	return DN_HOME;		# reliable definition of home
+}
+
+
+sub hybrid_catdir {	# split a DOS or hybrid_path into tokens and return array
+	my $self = shift;
+	confess "SYNTAX: hybrid_catdir(EXPR, EXPR)" unless (@_);
+
+	my @dn = $self->hybrid_splitdir(@_);
+
+	use Path::Class;
+
+	my $pn = join('/', @dn);
+
+	my $pc = file($pn);	# Path::Class constructor
+	my $dos = $pc->as_foreign('Win32');
+
+	$self->log->debug("dos [$dos]");
+
+
+	my $dn = join('\\', @dn);
+
+	$self->log->debug(sprintf "dn [$dn] dn [%s]", Dumper(\@dn));
+
+	return $self->backslasher($dn);
+}
+
+
+sub hybrid_path {
+	my $self = shift;
+	my $pn = shift;
+	confess "SYNTAX: hybrid_path(PATH)" unless defined ($pn);
+
+	return $pn unless ($self->like_windows);
+
+	return $pn if ($self->on_windows);
+
+	my @pn = $self->hybrid_splitdir($pn);
+
+	return $pn unless (@pn);
+
+	my $drive = lc(shift @pn);
+
+	$self->log->warn("unusual drive letter [$drive]")
+		unless ($drive =~ /[a-z]:/i);
+
+	$drive =~ s/://g;
+
+	$pn = File::Spec->catdir("", $self->hybrid_tld, $drive, @pn);
+
+	$self->log->debug("pn [$pn]");
+
+	return $pn;
+}
+
+
+sub hybrid_splitdir {	# split a DOS or hybrid_path into tokens and return array
+	my $self = shift;
+	confess "SYNTAX: hybrid_splitdir(PATH, ...)" unless (@_);
+
+	# cannot use File::Spec->splitdir as cygwin paths are unix-like
+	# and we may want to explicitly convert windows-like paths
+	# note that Path::Tiny thinks c:\temp is relative to the CWD and is a file!
+
+	my $re = '[\\\/]';
+
+	my @dn; for my $pn (@_) {
+	
+		my @pn = split(/$re/, $pn);
+
+		push @dn, @pn;
+	}
+	$self->log->debug(sprintf "dn [%s]", Dumper(\@dn));
+
+	if ($dn[0] =~ /:/) {	# a DOS drive letter and thus root directory
+
+		my $prepend = $self->hybrid_tld;
+
+		if (defined $prepend) {
+
+			$dn[0] = lc $dn[0];
+			$dn[0] =~ s/://;
+
+			unshift @dn, "", $prepend;
+		}
+	} elsif ($dn[0] =~ /\$/) {	# DOS special drive, possibly share
+
+		unshift @dn, "";
+	}
+
+	my $dn = join('/', @dn);
+
+	# Path::Tiny which gets rid of rubbish duplicates
+	my $pn = path($dn);	# a Path::Tiny object now only forward slashes
+
+	$self->log->debug(sprintf "canonpath [%s]", $pn->canonpath);
+	$self->log->debug(sprintf "absolute [%s]", $pn->absolute);
+
+	@dn = split(/$re/, $pn->canonpath);
+
+	$self->log->debug(sprintf "dn [%s]", Dumper(\@dn));
+
+	return @dn;
+}
+
+
+sub hybrid_tld {	# determine the mountpoint for hybrid OS
+	my $self = shift;
+
+	my $mount; if ($self->on_cygwin) {
+
+		$mount = DN_MOUNT_CYG;
+
+	} elsif ($self->on_wsl) {
+
+		$mount = DN_MOUNT_WSL;
+	} else {
+		$self->log->logconfess("unable to determine platform [$^O]");
+	}
+
+	return $mount;
+}
+
+
+sub is_extant {
+	my $self = shift;
+	my $pn = shift;
+	confess "SYNTAX: is_extant(EXPR)" unless defined ($pn);
+
+	return 1
+		if (-e $pn);
+
+	$self->cough("does not exist [$pn]");
+
+	return 0;	# reverse polarity
 }
 
 
@@ -411,7 +402,7 @@ sub winpath {
 				$drive = uc(shift @pn) . ':';
 			}
 
-			$self->_log->warn("unusual drive letter [$drive]")
+			$self->log->warn("unusual drive letter [$drive]")
 				unless ($drive =~ /[a-z]:/i);
 
 			$pn = $self->hybrid_catdir($drive, @pn);
@@ -435,7 +426,7 @@ sub wslhome {	# determine the host location of the WSL user home
 
 	#return $self->backslasher($self->winpath($self->wslroot . '\\' . $self->homedir)) ;
 	my @dnh = $self->hybrid_splitdir($self->homedir); # e.g. /home/jbloggs
-	$self->_log->debug(sprintf "dnh [%s]", Dumper(\@dnh));
+	$self->log->debug(sprintf "dnh [%s]", Dumper(\@dnh));
 
 	shift @dnh;	# get rid of the root prefix, e.g. home/jbloggs
 
@@ -457,6 +448,7 @@ sub wslroot {	# determine the host location of the WSL distro root
 	return $self->backslasher($self->_wslroot);
 }
 
+#sub END { }
 
 1;
 
@@ -464,7 +456,7 @@ __END__
 
 =head1 VERSION
 
-$Revision: 1.14 $
+___EUMM_VERSION___
 
 =head1 LICENSE
 
