@@ -32,14 +32,14 @@ backslashes are appropriately delimeted, e.g. \ becomes \\.
 Default is 0 (off = do not shellify).
 
 
-=item 10d.  OBJ->hybrid_path(PATH)
+=item 10d.  OBJ->parse(PATH)
 
 Converts a Windows-style path, e.g. C:\WINDOWS to that of a hybrid OS platform.
 E.g. for Cygwin this might be /cygrive/c/WINDOWS
 and for WSL this might be /mnt/c/WINDOWS.
 
 
-=item 10e.  OBJ->hybrid_tld
+=item 10e.  OBJ->tld
 
 Return the top-level directory component for a hybrid OS, e.g. cygwin or mnt.
 
@@ -61,30 +61,12 @@ Returns undef if the current process is not executing within a WSL context.
 Determine the host's directory location of the current WSL distribution root.
 
 
-=item 5c.  OBJ->ext
-
-Specify a filename extension for temporary files.
-A default applies.
-
-
-=item 5d.  OBJ->prefix
-
-Specify the filename prefix (basename) for any temporary files created.
-A default applies.
-
-
-=item 5e.  OBJ->homedir
+=item 5e.  OBJ->home
 
 Read-only method advises a generally failsafe home directory for user.
 
 
-=item 5f.  OBJ->hometmp
-
-Read-only method advises a nice location within the user's "home" storage
-location in which files might be temporarily stored.  
-
-
-=item 9b.  OBJ->is_extant(PATH)
+=item 9b.  OBJ->extant(PATH)
 
 Checks if the file specified by PATH exists. Subject to fatal processing.
 
@@ -99,17 +81,19 @@ use parent 'Batch::Exec';
 # --- includes ---
 use Carp qw(cluck confess);
 use Data::Dumper;
-use File::HomeDir;
-use Log::Log4perl qw/ get_logger /;
 use Path::Tiny;
+
+require File::HomeDir;
+require Path::Class;
+
+#use Log::Log4perl qw(:levels);	# debugging
 
 
 # --- package constants ---
 use constant ENV_WSL_DISTRO => $ENV{'WSL_DISTRO_NAME'};
 
-use constant DN_HOME => ($ENV{'HOME'} eq '') ? $ENV{'HOME'} : File::HomeDir->my_home;
-use constant DN_MOUNT_WSL => "mnt";
-use constant DN_MOUNT_CYG => "cygdrive";
+use constant DN_MOUNT_WSL => "/mnt";
+use constant DN_MOUNT_CYG => "/cygdrive";
 use constant DN_ROOT_WSL => path('///wsl$');	# this is a WSL location only
 
 
@@ -126,7 +110,10 @@ my $_n_objects = 0;
 
 my %_attribute = (	# _attributes are restricted; no direct get/set
 	behaviour => undef,	# platform-dependent default, one of: w, u.
+	_home => undef,		# a reliable version of user's home directory
+	raw => undef,		# the raw path passed into a parse function
 	shellify => 0,		# converts \ to \\ for DOS-like shell exits
+	volume => undef,	# placeholder for volume component
 );
 
 #sub INIT { };
@@ -180,6 +167,9 @@ sub new {
 		}
 	}
 
+	$self->behaviour(($self->on_windows) ? "w" : "u");
+	$self->home;
+
 	while (my ($method, $value) = each %args) {
 
 		confess "SYNTAX new(, ...) value not specified"
@@ -227,16 +217,33 @@ sub backslasher { # for shell calls converts windows '\' to '\\'
 }
 
 
-sub homedir {	# read-only method!
-	return DN_HOME;		# reliable definition of home
+sub home {	# provide a value for a home directory
+	my $self = shift;
+
+	my $dn; if (@_) {
+
+		$dn = shift;
+
+		$self->{'_home'} = $dn;
+	}
+	if (defined $self->{'_home'}) {
+
+		$dn = $self->{'_home'};
+	} else {
+		my $env = ($self->on_windows) ? $ENV{'USERPROFILE'} : $ENV{'HOME'};
+		$dn = ($env eq '') ? File::HomeDir->my_home : $env;
+
+		$self->{'_home'} = $dn;
+	}
+	return $dn;
 }
 
 
-sub hybrid_catdir {	# split a DOS or hybrid_path into tokens and return array
+sub catdir {	# split a DOS or path into tokens and return array
 	my $self = shift;
-	confess "SYNTAX: hybrid_catdir(EXPR, EXPR)" unless (@_);
+	confess "SYNTAX: catdir(EXPR, EXPR)" unless (@_);
 
-	my @dn = $self->hybrid_splitdir(@_);
+	my @dn = $self->splitdir(@_);
 
 	use Path::Class;
 
@@ -256,16 +263,16 @@ sub hybrid_catdir {	# split a DOS or hybrid_path into tokens and return array
 }
 
 
-sub hybrid_path {
+sub parse {
 	my $self = shift;
 	my $pn = shift;
-	confess "SYNTAX: hybrid_path(PATH)" unless defined ($pn);
+	confess "SYNTAX: parse(PATH)" unless defined ($pn);
 
 	return $pn unless ($self->like_windows);
 
 	return $pn if ($self->on_windows);
 
-	my @pn = $self->hybrid_splitdir($pn);
+	my @pn = $self->splitdir($pn);
 
 	return $pn unless (@pn);
 
@@ -276,7 +283,7 @@ sub hybrid_path {
 
 	$drive =~ s/://g;
 
-	$pn = File::Spec->catdir("", $self->hybrid_tld, $drive, @pn);
+	$pn = File::Spec->catdir("", $self->tld, $drive, @pn);
 
 	$self->log->debug("pn [$pn]");
 
@@ -284,9 +291,9 @@ sub hybrid_path {
 }
 
 
-sub hybrid_splitdir {	# split a DOS or hybrid_path into tokens and return array
+sub splitdir {	# split a DOS or path into tokens and return array
 	my $self = shift;
-	confess "SYNTAX: hybrid_splitdir(PATH, ...)" unless (@_);
+	confess "SYNTAX: splitdir(PATH, ...)" unless (@_);
 
 	# cannot use File::Spec->splitdir as cygwin paths are unix-like
 	# and we may want to explicitly convert windows-like paths
@@ -304,7 +311,7 @@ sub hybrid_splitdir {	# split a DOS or hybrid_path into tokens and return array
 
 	if ($dn[0] =~ /:/) {	# a DOS drive letter and thus root directory
 
-		my $prepend = $self->hybrid_tld;
+		my $prepend = $self->tld;
 
 		if (defined $prepend) {
 
@@ -334,7 +341,7 @@ sub hybrid_splitdir {	# split a DOS or hybrid_path into tokens and return array
 }
 
 
-sub hybrid_tld {	# determine the mountpoint for hybrid OS
+sub tld {	# determine the mountpoint for hybrid OS
 	my $self = shift;
 
 	my $mount; if ($self->on_cygwin) {
@@ -344,18 +351,27 @@ sub hybrid_tld {	# determine the mountpoint for hybrid OS
 	} elsif ($self->on_wsl) {
 
 		$mount = DN_MOUNT_WSL;
+
+#	} elsif ($self->on_linux) {
+
+#		$mount = '/';
+
+#	} elsif ($self->on_windows) {
+
+#		$mount = '\\';
 	} else {
-		$self->log->logconfess("unable to determine platform [$^O]");
+		$mount = '/';
+#		$self->cough("unable to determine platform [$^O]");
 	}
 
 	return $mount;
 }
 
 
-sub is_extant {
+sub extant {
 	my $self = shift;
 	my $pn = shift;
-	confess "SYNTAX: is_extant(EXPR)" unless defined ($pn);
+	confess "SYNTAX: extant(EXPR)" unless defined ($pn);
 
 	return 1
 		if (-e $pn);
@@ -376,11 +392,11 @@ sub winpath {
 
 	return $pn if ($self->on_windows);
 
-	my @pn = $self->hybrid_splitdir($pn);
+	my @pn = $self->splitdir($pn);
 
 	return $pn unless (@pn);
 
-	my $mount = $self->hybrid_tld;
+	my $mount = $self->tld;
 
 	if ($self->on_cygwin || $self->on_wsl) {
 
@@ -405,10 +421,10 @@ sub winpath {
 			$self->log->warn("unusual drive letter [$drive]")
 				unless ($drive =~ /[a-z]:/i);
 
-			$pn = $self->hybrid_catdir($drive, @pn);
+			$pn = $self->catdir($drive, @pn);
 
 		} else {
-			$pn = $self->hybrid_catdir(@pn);
+			$pn = $self->catdir(@pn);
 		}
 	}
 	return $self->backslasher($pn);
@@ -424,17 +440,17 @@ sub wslhome {	# determine the host location of the WSL user home
 #	However, not sure we need this context so use Windows-friendly
 #	backslashes, i.e. \\wsl$\Ubuntu\home\jbloggs
 
-	#return $self->backslasher($self->winpath($self->wslroot . '\\' . $self->homedir)) ;
-	my @dnh = $self->hybrid_splitdir($self->homedir); # e.g. /home/jbloggs
+	#return $self->backslasher($self->winpath($self->wslroot . '\\' . $self->home)) ;
+	my @dnh = $self->splitdir($self->home); # e.g. /home/jbloggs
 	$self->log->debug(sprintf "dnh [%s]", Dumper(\@dnh));
 
 	shift @dnh;	# get rid of the root prefix, e.g. home/jbloggs
 
 	my $dn = join('/', $self->_wslroot, @dnh);
 
-	my @dn = $self->hybrid_splitdir($dn);
+	my @dn = $self->splitdir($dn);
 
-	$dn = $self->hybrid_catdir(@dn);
+	$dn = $self->catdir(@dn);
 
 	return $self->backslasher($dn);
 }

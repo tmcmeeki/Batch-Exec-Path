@@ -1,12 +1,13 @@
 #!/usr/bin/perl
 #
-# 01split::Exec::Path-2.t - test harness for the Batch::Exec::Path.pm module: pathnames
+# 01split.t - test harness for the Batch::Exec::Path.pm module: split / join
 #
 use strict;
 
 use Data::Compare;
 use Data::Dumper;
-use Logfer qw/ :all /;
+use Log::Log4perl qw/ :easy /; Log::Log4perl->easy_init($ERROR);
+#use Logfer qw/ :all /;
 use Test::More tests => 45;
 
 BEGIN { use_ok('Batch::Exec::Path') };
@@ -84,47 +85,47 @@ if ($o1->on_wsl) {
 	is($o2->wslhome, undef,	"wslhome ISNT on_wsl convert");
 }
 
-# ---- hybrid_splitdir basic ----
+# ---- splitdir basic ----
 my $dn_winc = 'C:\Users\abc';
 my $dn_wind = 'D:\Users\abc';
 my $dn_cyg = '/cygdrive/d/Users/abc';
 my $dn_wsl = '/mnt/d/Users/abc';
 
-is_deeply([$o1->hybrid_splitdir($dn_winc)], [qw/ C: Users abc/], "splitdir 1");
-is_deeply([$o1->hybrid_splitdir($dn_wind)], [qw/ D: Users abc/], "splitdir 2");
-is_deeply([$o1->hybrid_splitdir($dn_cyg)], ["", qw/ cygdrive d Users abc/], "splitdir 3");
-is_deeply([$o1->hybrid_splitdir($dn_wsl)], ["", qw/ mnt d Users abc/], "splitdir 4");
+is_deeply([$o1->splitdir($dn_winc)], [qw/ C: Users abc/], "splitdir 1");
+is_deeply([$o1->splitdir($dn_wind)], [qw/ D: Users abc/], "splitdir 2");
+is_deeply([$o1->splitdir($dn_cyg)], ["", qw/ cygdrive d Users abc/], "splitdir 3");
+is_deeply([$o1->splitdir($dn_wsl)], ["", qw/ mnt d Users abc/], "splitdir 4");
 exit -1;
 
 
-# ---- hybrid_path basic ----
+# ---- path basic ----
 
 my $re_cyg = qr/cyg.+users.+abc/i;
 my $re_win = qr/c.+users.+abc/i;
 my $re_wsl = qr/mnt.+users.+abc/i;
 if ($o1->on_cygwin) {
-	is($o1->hybrid_tld, "cygdrive",			"hybrid_tld cygdrive");
-	like($o1->hybrid_path($dn_winc), $re_cyg,	"hybrid_path path");
-	like($o1->hybrid_path($dn_wind), qr/cyg.+d.+abc/,	"hybrid_path drive");
+	is($o1->tld, "cygdrive",			"tld cygdrive");
+	like($o1->path($dn_winc), $re_cyg,	"path path");
+	like($o1->path($dn_wind), qr/cyg.+d.+abc/,	"path drive");
 
 } elsif ($o1->on_wsl) {
-	is($o1->hybrid_tld, "mnt",			"hybrid_tld mnt");
-	like($o1->hybrid_path($dn_winc), $re_wsl,	"hybrid_path path");
-	like($o1->hybrid_path($dn_wind), qr/mnt.+d.+abc/,	"hybrid_path drive");
+	is($o1->tld, "mnt",			"tld mnt");
+	like($o1->path($dn_winc), $re_wsl,	"path path");
+	like($o1->path($dn_wind), qr/mnt.+d.+abc/,	"path drive");
 
 } elsif ($o1->on_windows) {
 
-	is($o1->hybrid_tld, undef,			"hybrid_tld windows");
-	like($o1->hybrid_path($dn_winc), $re_win,	"hybrid_path path");
+	is($o1->tld, undef,			"tld windows");
+	like($o1->path($dn_winc), $re_win,	"path path");
 } else {
-	is($o1->hybrid_tld, undef,			"hybrid_tld undef");
+	is($o1->tld, undef,			"tld undef");
 }
 
 
-# ---- hybrid_path other ----
-like($o1->hybrid_path('1:\hello.txt'), qr/txt/,	"hybrid_path bad drive");
-like($o1->hybrid_path(''), qr/^$/,		"hybrid_path null");
-like($o1->hybrid_path('xxx'), qr/xxx/,		"hybrid_path not drive");
+# ---- path other ----
+like($o1->path('1:\hello.txt'), qr/txt/,	"path bad drive");
+like($o1->path(''), qr/^$/,		"path null");
+like($o1->path('xxx'), qr/xxx/,		"path not drive");
 
 
 # ---- winpath ----
@@ -197,7 +198,7 @@ __END__
 
 =head1 DESCRIPTION
 
-01split.t - test harness for the Batch::Exec::Path.pm module: pathnames
+01split.t - test harness for the Batch::Exec::Path.pm module: split / join
 
 =head1 VERSION
 

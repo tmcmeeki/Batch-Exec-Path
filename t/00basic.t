@@ -1,13 +1,14 @@
 #!/usr/bin/perl
 #
-# 00basic::Exec::Path-2.t - test harness for the Batch::Exec::Path.pm module: pathnames
+# 00basic.t - test harness for the Batch::Exec::Path.pm module: basics
 #
 use strict;
 
-use Data::Compare;
+#use Data::Compare;
 use Data::Dumper;
-use Logfer qw/ :all /;
-use Test::More tests => 45;
+use Log::Log4perl qw/ :easy /;
+#use Logfer qw/ :all /;
+use Test::More tests => 61;
 
 BEGIN { use_ok('Batch::Exec::Path') };
 
@@ -17,28 +18,32 @@ BEGIN { use_ok('Batch::Exec::Path') };
 
 
 # -------- global variables --------
+Log::Log4perl->easy_init($ERROR);
+#Log::Log4perl->easy_init($DEBUG);
 my $log = get_logger(__FILE__);
 
 
 # -------- main --------
 my $cycle = 1;
 
-my $obc1 = Batch::Exec::Path->new;
-isa_ok($obc1, "Batch::Exec::Path",	"class check $cycle"); $cycle++;
+my $obc = Batch::Exec::Path->new;
+isa_ok($obc, "Batch::Exec::Path",	"class check $cycle"); $cycle++;
 
-my $objp = Batch::Exec->new;
-isa_ok($objp, "Batch::Exec",	"class check $cycle"); $cycle++;
+my $obp = Batch::Exec->new;
+isa_ok($obp, "Batch::Exec",		"class check $cycle"); $cycle++;
+
+#$log->debug(sprintf "obc [%s]", Dumper($obc));
 
 
 # -------- attributes --------
-my @cttr = $obc1->Attributes;
-my @pttr = $objp->Attributes;
-is(scalar(@cttr) - scalar(@pttr), 5,	"class attributes");
+my @cttr = $obc->Attributes;
+my @pttr = $obp->Attributes;
+is(scalar(@cttr) - scalar(@pttr), 4,	"class attributes");
 is(shift @cttr, 'Batch::Exec::Path',	"class okay");
 
 for my $attr (@cttr) {
 
-	my $dfl = $obc1->$attr;
+	my $dfl = $obc->$attr;
 
 	my ($set, $type); if (defined $dfl && $dfl =~ /^[\-\d\.]+$/) {
 		$set = -1.1;
@@ -48,55 +53,55 @@ for my $attr (@cttr) {
 		$type = "s";
 	}
 
-	is($obc1->$attr($set), $set,	"$attr set cycle $cycle");
-	isnt($obc1->$attr, $dfl,	"$attr check cycle $cycle");
+	is($obc->$attr($set), $set,	"$attr set cycle $cycle");
+	isnt($obc->$attr, $dfl,	"$attr check cycle $cycle");
 
-	$log->debug(sprintf "attr [$attr]=%s", $obc1->$attr);
+	$log->debug(sprintf "attr [$attr]=%s", $obc->$attr);
 
 	if ($type eq "s") {
 		my $ck = (defined $dfl) ? $dfl : "_null_";
 
-		ok($obc1->$attr ne $ck, "$attr string cycle $cycle");
+		ok($obc->$attr ne $ck, "$attr string cycle $cycle");
 	} else {
-		ok($obc1->$attr < 0,	"$attr number cycle $cycle");
+		ok($obc->$attr < 0,	"$attr number cycle $cycle");
 	}
-	is($obc1->$attr($dfl), $dfl,	"$attr reset cycle $cycle");
+	is($obc->$attr($dfl), $dfl,	"$attr reset cycle $cycle");
 
         $cycle++;
 }
 
 
-# -------- Inherit --------
-my $obb1 = Batch::Exec->new;
-my $obb2 = Batch::Exec->new('null' => "bar");
-isa_ok( $obb1, "Batch::Exec",		"new no args");
-isa_ok( $obb2, "Batch::Exec",		"new no args");
+# -------- behaviour defaults --------
+like($obc->behaviour, qr/[uw]/,		"valid behaviour defined");
 
-is($obc1->null, "Batch::Exec",	"null default");
-is($obj2->null, "foo",	"null override");
-is($obb1->null, "Batch::Exec",	"check null");
-is($obb2->null("bar"), "bar",	"check null");
+if ($obc->on_windows) {
+	is($obc->behaviour, "w",	"windows behaviour on_windows");
 
-my @attb = $obb1->Attributes;	shift @attb;
-$log->debug(sprintf "Batch::Exec attr [%s]", Dumper(\@attb));
-my $cpa = scalar(@attb);
-# fatal	$obc1->Inherit;
-is($obc1->Inherit($obb1), $cpa,	"inherit attribute count similar");
-is($obc1->null, "Batch::Exec",	"inherit ineffective attribute change");
-is($obj2->Inherit($obb2), $cpa,	"inherit attribute count disparate");
-is($obj2->null, $obb2->null,	"inherit effective attribute change");
-for my $attr (@attb) {
-	is($obc1->$attr, $obb1->$attr,	"first attribute match cycle $cycle");
-	is($obj2->$attr, $obb2->$attr,	"second attribute match cycle $cycle");
-
-	$cycle++;
+} else {
+	is($obc->behaviour, "u",	"unix behaviour off windows");
 }
+
+if ($obc->like_windows) {
+
+	my $like = ($obc->on_cygwin || $obc->on_wsl) ? 'u' : 'w';
+	
+	is($obc->behaviour, $like,	"$like-like behaviour like_windows");
+} else {
+	is($obc->behaviour, "u",	"unix behaviour unlike windows");
+}
+
+if ($obc->like_unix) {
+	is($obc->behaviour, "u",	"unix behaviour like_unix");
+} else {
+	is($obc->behaviour, "w",	"windows behaviour unlike unix");
+}
+
 
 __END__
 
 =head1 DESCRIPTION
 
-00basic.t - test harness for the Batch::Exec::Path.pm module: pathnames
+00basic.t - test harness for the Batch::Exec::Path.pm module: basics
 
 =head1 VERSION
 
