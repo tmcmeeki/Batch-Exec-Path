@@ -1,5 +1,9 @@
+use warnings;
+use strict;
+
 use lib 't';
 
+use Data::Dumper;
 use Test::More;
 use Log::Log4perl qw/ :easy /;
 
@@ -9,8 +13,7 @@ use Harness;
 Log::Log4perl->easy_init($DEBUG);
 
 my $harn = Harness->new("hello");
-#$harn->log->error("HELLO");
-$harn->planned(57);
+$harn->planned(488);
 
 is($harn->this, "hello",		"this");
 
@@ -44,11 +47,42 @@ is($harn->cond('group2'), "group2 cycle=3",	"group2 third cond");
 
 # --- paths ---
 is(ref($harn->_path), "ARRAY",	"path hash");
-is(scalar(@{ $harn->_path }), 32,	"hash entries");
+is(scalar(@{ $harn->_path }), 33,	"hash entries");
 
 for(@{ $harn->_path }) {
 
 	is(keys(%{ $_ }), 6,		$harn->cond("keys"));
+}
+
+
+# --- all ---
+my @keys; for ($harn->all) {
+
+	@keys = keys(%{ $_ });
+
+	is(@keys, 6,			$harn->cond("all"));
+}
+#$harn->log->debug(sprintf "keys [%s]", Dumper(\@keys));
+
+
+# --- all singleton select ---
+for my $key (@keys) {
+
+	for ($harn->all($key)) {
+
+		is(scalar(keys %$_), 1,		$harn->cond("singleton $key"));
+	}
+}
+
+# --- all multi select ---
+while (@keys) {
+	my $columns = scalar(@keys);
+
+	for ($harn->all(@keys)) {
+
+		is(scalar(keys %$_), $columns,	$harn->cond("multi $columns"));
+	}
+	shift @keys;
 }
 
 
@@ -63,7 +97,11 @@ is(scalar($harn->filter("volume", "c")), 3,	$harn->cond("volume"));
 is(scalar($harn->filter("volume", "D")), 1,	$harn->cond("volume"));
 
 @paths = $harn->invalid;
-is(scalar(@paths), 3,				$harn->cond("invalid"));
+is(scalar(@paths), 4,				$harn->cond("invalid"));
 @paths = $harn->valid;
 is(scalar(@paths), 29,				$harn->cond("valid"));
+
+
+# --- all_paths ---
+is(scalar($harn->all_paths), 33,		$harn->cond("all_paths"));
 

@@ -4,6 +4,7 @@ package Harness;
 # directory names
 #
 # Harness.pm - test harness for module Batch::Exec::Path
+# Version: ___EUMM_VERSION___
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published
@@ -38,6 +39,7 @@ my %attribute = (
 	dummy => "IGNORE overidden dummy exit routine\n",
 	executed => 0,
 	log => get_logger(__FILE__),
+	msg => 'field [%s] does not exist in hash [%s]',
 	this => undef,
 );
 
@@ -82,7 +84,7 @@ sub new {
 		$self->$method($value);
 	}
 	$self->{'this'} = $test_class;
-	$self->{'_path'} = $self->paths;
+	$self->{'_path'} = $self->parse_me;
 
 	return $self;
 }
@@ -158,9 +160,9 @@ sub planned {
 }
 
 
-sub paths {
+sub parse_me {
 	my $self = shift;
-#	confess "SYNTAX: paths(tests)" unless defined ($n_tests);
+#	confess "SYNTAX: parse_me(tests)" unless defined ($n_tests);
 
 	my $pn = __FILE__;
 	$self->log->trace("reading lines from pn [$pn]");
@@ -206,24 +208,58 @@ sub paths {
 }
 
 
+sub all {
+	my $self = shift;
+
+	confess "FATAL: no paths defined" unless defined($self->_path);
+
+	my @all; for my $in (@{ $self->_path }) {
+
+		if (@_) {
+			my %rec = map { $_ => $self->select($in, $_); } @_;
+
+			push @all, { %rec };
+		} else {
+			push @all, $in;
+		}
+	}
+	$self->log->trace(sprintf "all [%s]", Dumper(\@all));
+
+	return @all;
+}
+
+
+sub select {
+	my $self = shift;
+	my $rh = shift;
+	my $field = shift;
+
+	confess "SYNTAX: select(HASHREF, EXPR)" unless (
+		defined($rh) && ref($rh) eq 'HASH' && defined($field));
+
+	$self->log->logconfess(sprintf $self->msg, $field, Dumper($rh))
+		unless exists ($rh->{$field});
+
+	return $rh->{$field};
+}
+
+
 sub filter {
 	my $self = shift;
 	my $field = shift;
-	my $value = shift;
+	my $wanted = shift;
 	confess "SYNTAX: filter(EXPR, EXPR)" unless (
 		defined ($field) && defined ($field));
 
 	confess "FATAL: no paths defined" unless defined($self->_path);
 
-	my $msg = 'field [%s] does not exist in hash [%s]';
 #	my @match; while (my ($pn, $status) = each %{ $self->_path }) {
 
-	my @match; for (@{ $self->_path }) {
+	my @match; for ($self->all) {
 
-		$self->log->logconfess(sprintf $msg, $field, Dumper($_))
-			unless exists ($_->{$field});
+		my $value = $self->select($_, $field);
 
-		push @match, $_ if ($_->{$field} eq $value);
+		push @match, $_ if ($wanted eq $value);
 	}
 	$self->log->trace(sprintf "match [%s]", Dumper(\@match));
 
@@ -242,6 +278,18 @@ sub valid {
 	my $self = shift;
 
 	return $self->filter("valid", 1);
+}
+
+
+sub all_paths {
+	my $self = shift;
+
+	my @paths; for ($self->all('path')) {
+
+		push @paths, values %$_;
+	}
+
+	return @paths;
 }
 
 
@@ -289,3 +337,4 @@ __END__
 0=1=1=\=1=1:\hello.txt
 1=1=this=\=3=\\\\\\\\this\\\is\\wierd\\\\now
 0=1=none=\=1=\server\Temp02
+0=1=none=none=4=this/path has/some spaces/and'apostrophe
