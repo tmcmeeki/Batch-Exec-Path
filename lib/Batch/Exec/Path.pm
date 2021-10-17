@@ -81,10 +81,10 @@ use parent 'Batch::Exec';
 # --- includes ---
 use Carp qw(cluck confess);
 use Data::Dumper;
-use Path::Tiny;
 
 require File::HomeDir;
 require Path::Class;
+require Path::Tiny;
 
 #use Log::Log4perl qw(:levels);	# debugging
 
@@ -94,7 +94,15 @@ use constant ENV_WSL_DISTRO => $ENV{'WSL_DISTRO_NAME'};
 
 use constant DN_MOUNT_WSL => "/mnt";
 use constant DN_MOUNT_CYG => "/cygdrive";
-use constant DN_ROOT_WSL => path('///wsl$');	# this is a WSL location only
+use constant DN_ROOT_WSL => '//wsl$';	# this is a WSL location only
+
+use constant RE_DELIM_U => qr[\/];	# the forward-slash regexp for unix
+use constant RE_DELIM_W => qr[\\];	# the back-slash regexp for windows
+use constant RE_SHELLIFY => qr=[\s\$\\\/\']=;	# norty characters for shells
+
+use constant STR_DELIM_U => '/';	# the forward-slash for unix
+use constant STR_DELIM_W => '\\';	# the back-slash for windows
+
 
 
 # --- package globals ---
@@ -102,16 +110,25 @@ our $AUTOLOAD;
 #our @EXPORT = qw();
 #our @ISA = qw(Exporter);
 our @ISA;
-our $VERSION = sprintf "%d.%03d", q$Revision: 1.14 $ =~ /(\d+)/g;
+our $VERSION = '0.001';
 
 
 # --- package locals ---
 my $_n_objects = 0;
 
 my %_attribute = (	# _attributes are restricted; no direct get/set
-	behaviour => undef,	# platform-dependent default, one of: w, u.
 	_home => undef,		# a reliable version of user's home directory
+	behaviour => undef,	# platform-dependent default, one of: w, u.
+	converted => undef,	# a normalised, cleansed and converted path
+	deu => STR_DELIM_U,
+	dew => STR_DELIM_W,
+	normal => undef,	# the normalised path
+	parts => undef,		# the constituent components of the path
 	raw => undef,		# the raw path passed into a parse function
+	res => RE_SHELLIFY,
+	reu => RE_DELIM_U,
+	rew => RE_DELIM_W,
+	root => undef,		# placeholder for root component
 	shellify => 0,		# converts \ to \\ for DOS-like shell exits
 	volume => undef,	# placeholder for volume component
 );
@@ -200,20 +217,57 @@ sub _wslroot {	# determine the host location of the WSL distro root raw value
 }
 
 
-sub backslasher { # for shell calls converts windows '\' to '\\'
+sub extant {
 	my $self = shift;
 	my $pn = shift;
-	confess "SYNTAX: backslasher(EXPR)" unless defined($pn);
+	confess "SYNTAX: extant(EXPR)" unless defined ($pn);
 
-	$self->log->debug("pn [$pn]");
+	return 1
+		if (-e $pn);
 
-	return $pn unless ($self->shellify);
+	$self->cough("does not exist [$pn]");
 
-	$pn =~ s/\\/\\\\/g;
+	return 0;	# reverse polarity
+}
 
-	$self->log->debug("CONVERTED pn [$pn]");
 
-	return $pn;
+sub slash { # based on expected behaviour optionally convert / to \\
+	my $self = shift;
+#	if (@_) { $self->converted(shift) };
+
+	confess "SYNTAX: slash(EXPR)" unless defined($self->converted);
+
+	my $pni = $self->converted;
+
+	$self->log->debug("pni [$pni]");
+
+	my $lei = length($pni);
+	my $pno = $pni;
+	my $de = ($self->behaviour eq 'u') ?  $self->deu : $self->dew;
+	my $reu = $self->reu;
+
+	$pno =~ s/$reu/$de/g;
+
+	my $lno = length($pno);
+
+	$self->log->debug("lei [$lei] pni [$pni] lno [$lno] pno [$pno]");
+
+	$self->cough("slashed length [$lei] differs from [$lno]")
+		if ($lno != $lei);
+
+	return $pno unless ($self->shellify);
+
+	my $res = $self->res;
+	$pno =~ s/$res/\\$&/g;
+
+	$self->log->debug("slashed pno [$pno]");
+
+	$lno = length($pno);
+
+	$self->cough("slashed length [$lei] less than [$lno]")
+		if ($lno < $lei);
+
+	return $pno;
 }
 
 
@@ -259,7 +313,7 @@ sub catdir {	# split a DOS or path into tokens and return array
 
 	$self->log->debug(sprintf "dn [$dn] dn [%s]", Dumper(\@dn));
 
-	return $self->backslasher($dn);
+	return $self->slash($dn);
 }
 
 
@@ -291,23 +345,59 @@ sub parse {
 }
 
 
-sub splitdir {	# split a DOS or path into tokens and return array
+sub normalise {	# normalise a path to consistent unix-format
 	my $self = shift;
-	confess "SYNTAX: splitdir(PATH, ...)" unless (@_);
+	my $pni = shift;
+	confess "SYNTAX: normalise(PATH, ...)" unless (defined $pni);
+
+	$self->raw($pni);
+
+	my $lei = length($pni);
+	my $pno = $pni;
+	my $deu = $self->deu;
+	my $rew = $self->rew;
+
+	$pno =~ s/$rew/$deu/g;
+
+	my $lno = length($pno);
+
+	$self->log->debug("lei [$lei] pni [$pni] lno [$lno] pno [$pno]");
+
+	$self->cough("normalised length [$lei] differs from [$lno]")
+		if ($lno != $lei);
+
+	$self->normal($pno);
+
+	return $pno;
+}
+
+
+sub splitter {	# normalise a path to unix delimeters and split into components
+	my $self = shift;
+	my $pni = shift;
+	confess "SYNTAX: splitter(PATH)" unless defined($pni);
 
 	# cannot use File::Spec->splitdir as cygwin paths are unix-like
 	# and we may want to explicitly convert windows-like paths
 	# note that Path::Tiny thinks c:\temp is relative to the CWD and is a file!
+	my $reu = $self->reu;
 
-	my $re = '[\\\/]';
+	my @pn = split(/$reu/, $self->normalise($pni));
 
-	my @dn; for my $pn (@_) {
-	
-		my @pn = split(/$re/, $pn);
+	$self->log->debug(sprintf "pn [%s]", Dumper(\@pn));
 
-		push @dn, @pn;
-	}
-	$self->log->debug(sprintf "dn [%s]", Dumper(\@dn));
+	$self->parts([ @pn ]);
+
+	return @pn;
+}
+
+
+sub splitdir {	# split a path into tokens and return array
+	my $self = shift;
+	my $pni = shift;
+	confess "SYNTAX: splitdir(PATH)" unless defined($pni);
+
+	my @dn = $self->splitter($pni);
 
 	if ($dn[0] =~ /:/) {	# a DOS drive letter and thus root directory
 
@@ -333,7 +423,7 @@ sub splitdir {	# split a DOS or path into tokens and return array
 	$self->log->debug(sprintf "canonpath [%s]", $pn->canonpath);
 	$self->log->debug(sprintf "absolute [%s]", $pn->absolute);
 
-	@dn = split(/$re/, $pn->canonpath);
+#	@dn = split(/$re/, $pn->canonpath);
 
 	$self->log->debug(sprintf "dn [%s]", Dumper(\@dn));
 
@@ -365,20 +455,6 @@ sub tld {	# determine the mountpoint for hybrid OS
 	}
 
 	return $mount;
-}
-
-
-sub extant {
-	my $self = shift;
-	my $pn = shift;
-	confess "SYNTAX: extant(EXPR)" unless defined ($pn);
-
-	return 1
-		if (-e $pn);
-
-	$self->cough("does not exist [$pn]");
-
-	return 0;	# reverse polarity
 }
 
 
@@ -427,7 +503,7 @@ sub winpath {
 			$pn = $self->catdir(@pn);
 		}
 	}
-	return $self->backslasher($pn);
+	return $self->slash($pn);
 }
 
 
@@ -440,7 +516,7 @@ sub wslhome {	# determine the host location of the WSL user home
 #	However, not sure we need this context so use Windows-friendly
 #	backslashes, i.e. \\wsl$\Ubuntu\home\jbloggs
 
-	#return $self->backslasher($self->winpath($self->wslroot . '\\' . $self->home)) ;
+	#return $self->slash($self->winpath($self->wslroot . '\\' . $self->home)) ;
 	my @dnh = $self->splitdir($self->home); # e.g. /home/jbloggs
 	$self->log->debug(sprintf "dnh [%s]", Dumper(\@dnh));
 
@@ -452,7 +528,7 @@ sub wslhome {	# determine the host location of the WSL user home
 
 	$dn = $self->catdir(@dn);
 
-	return $self->backslasher($dn);
+	return $self->slash($dn);
 }
 
 
@@ -461,7 +537,7 @@ sub wslroot {	# determine the host location of the WSL distro root
 
 	return undef unless ($self->on_wsl);
 
-	return $self->backslasher($self->_wslroot);
+	return $self->slash($self->_wslroot);
 }
 
 #sub END { }

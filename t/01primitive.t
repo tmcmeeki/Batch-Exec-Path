@@ -94,6 +94,7 @@ for my $pn ($harness->all_paths) {
 
 # -------- splitter --------
 for my $pn ($harness->all_paths) {
+
 	my $o3 = Batch::Exec::Path->new;
 
 	my @pn = $o3->splitter($pn);
@@ -108,23 +109,56 @@ for my $pn ($harness->all_paths) {
 }
 
 
-exit -1;
 # -------- slash --------
-my $pn_rel = "foo/bar";
+my $os0 = Batch::Exec::Path->new('shellify' => 0);
+is($os0->shellify, 0,			$harness->cond("shellify off"));
 
-my $ou = Batch::Exec::Path->new('behaviour' => 'u');
-is($ou->behaviour, 'u',			$harness->cond("override behaviour"));
-for my $pn ($harness->all_paths) {
+my $os1 = Batch::Exec::Path->new('shellify' => 1);
+is($os1->shellify, 1,			$harness->cond("shellify on"));
 
-	$ou->slash($pn);
+$os0->behaviour('u');
+$os1->behaviour('u');
+is($os0->behaviour, 'u',		$harness->cond("behaviour unix"));
+is($os0->behaviour, $os1->behaviour,	$harness->cond("behaviour match"));
+
+my %uxp = (
+	'foo' => 'foo',
+	'foo bar' => q{foo\ bar},
+);
+while (my ($pnr, $pns) = each %uxp) {
+
+	my $cpn = $os0->converted($pnr);	# avoid doing this normally!
+	is($os0->slash($cpn), $pns,	$harness->cond("slash shellify on"));
+	$cpn = $os1->converted($pns);	# avoid doing this normally!
+
+	is($os1->slash($cpn), $pns,	$harness->cond("slash shellify off"));
+}
+exit -1;
+for ($harness->all) {
+
+	my $opn = $_->{'path'};
+	my $len = length($opn);
+	my $cpn;
+
+	is($len, length($cpn),		$harness->cond("converted length"));
+
+	is($os0->shellify(0), 0,		$harness->cond("u shellify off"));
+
+	is($os0->shellify(1), 1,		$harness->cond("u shellify on"));
+	ok($len <= length($os0->slash($cpn)),	$harness->cond("u slash on"));
+	my $re
 }
 exit -1;
 
+$os0->behaviour('w');
+$os1->behaviour('w');
+is($os0->behaviour, 'w',		$harness->cond("behaviour wind"));
+is($os0->behaviour, $os1->behaviour,	$harness->cond("behaviour match"));
 
 my $ow = Batch::Exec::Path->new('behaviour' => 'w');
-is($ow->behaviour, 'w',			$harness->cond("override behaviour"));
+is($ow->behaviour, 'w',		$harness->cond("override behaviour"));
 
-isnt($ou->slash($pn_rel), $ow->slash($pn_rel),	"slash differs with behaviour");
+#isnt($ou->slash($pn_rel), $ow->slash($pn_rel),	"slash differs with behaviour");
 
 
 __END__
