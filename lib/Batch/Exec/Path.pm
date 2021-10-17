@@ -233,39 +233,27 @@ sub extant {
 
 sub slash { # based on expected behaviour optionally convert / to \\
 	my $self = shift;
-#	if (@_) { $self->converted(shift) };
+	if (@_) { $self->converted(shift) };
 
 	confess "SYNTAX: slash(EXPR)" unless defined($self->converted);
 
 	my $pni = $self->converted;
 
-	$self->log->debug("pni [$pni]");
-
-	my $lei = length($pni);
 	my $pno = $pni;
 	my $de = ($self->behaviour eq 'u') ?  $self->deu : $self->dew;
 	my $reu = $self->reu;
 
 	$pno =~ s/$reu/$de/g;
 
-	my $lno = length($pno);
-
-	$self->log->debug("lei [$lei] pni [$pni] lno [$lno] pno [$pno]");
-
-	$self->cough("slashed length [$lei] differs from [$lno]")
-		if ($lno != $lei);
+	$self->log->debug("pni [$pni] pno [$pno]");
 
 	return $pno unless ($self->shellify);
 
 	my $res = $self->res;
-	$pno =~ s/$res/\\$&/g;
+
+	$pno =~ s/$res/\\$&/g;	# slash all occurrences within
 
 	$self->log->debug("slashed pno [$pno]");
-
-	$lno = length($pno);
-
-	$self->cough("slashed length [$lei] less than [$lno]")
-		if ($lno < $lei);
 
 	return $pno;
 }

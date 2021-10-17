@@ -20,7 +20,7 @@ use Harness;
 #BEGIN { use_ok('Batch::Exec::Path') };
 my $harness = Harness->new('Batch::Exec::Path');
 
-$harness->planned(15);
+$harness->planned(256);
 use_ok($harness->this);
 #require_ok($harness->this);
 
@@ -109,7 +109,7 @@ for my $pn ($harness->all_paths) {
 }
 
 
-# -------- slash --------
+# -------- slash and shellify: unix behaviour --------
 my $os0 = Batch::Exec::Path->new('shellify' => 0);
 is($os0->shellify, 0,			$harness->cond("shellify off"));
 
@@ -121,44 +121,45 @@ $os1->behaviour('u');
 is($os0->behaviour, 'u',		$harness->cond("behaviour unix"));
 is($os0->behaviour, $os1->behaviour,	$harness->cond("behaviour match"));
 
-my %uxp = (
+my %uxp = (	# first = path (unmodified), second = slash result
 	'foo' => 'foo',
 	'foo bar' => q{foo\ bar},
+	'foo/bar' => q{foo\/bar},
+	'/foo/bar' => q{\/foo\/bar},
+	'/foo/bar/' => q{\/foo\/bar\/},
+	q{foo'bar} => q{foo\'bar},
+	'/fu/man/chu' => q{\/fu\/man\/chu},
+	' fu man chu ' => q{\ fu\ man\ chu\ },
 );
-while (my ($pnr, $pns) = each %uxp) {
+while (my ($normal, $slash) = each %uxp) {
 
-	my $cpn = $os0->converted($pnr);	# avoid doing this normally!
-	is($os0->slash($cpn), $pns,	$harness->cond("slash shellify on"));
-	$cpn = $os1->converted($pns);	# avoid doing this normally!
+	is($os0->slash($normal), $normal,	$harness->cond("slash shellify off"));
 
-	is($os1->slash($cpn), $pns,	$harness->cond("slash shellify off"));
+	is($os1->slash($normal), $slash,	$harness->cond("slash shellify on"));
 }
-exit -1;
-for ($harness->all) {
 
-	my $opn = $_->{'path'};
-	my $len = length($opn);
-	my $cpn;
 
-	is($len, length($cpn),		$harness->cond("converted length"));
-
-	is($os0->shellify(0), 0,		$harness->cond("u shellify off"));
-
-	is($os0->shellify(1), 1,		$harness->cond("u shellify on"));
-	ok($len <= length($os0->slash($cpn)),	$harness->cond("u slash on"));
-	my $re
-}
-exit -1;
-
+# -------- slash and shellify: windows behaviour --------
 $os0->behaviour('w');
 $os1->behaviour('w');
 is($os0->behaviour, 'w',		$harness->cond("behaviour wind"));
 is($os0->behaviour, $os1->behaviour,	$harness->cond("behaviour match"));
 
-my $ow = Batch::Exec::Path->new('behaviour' => 'w');
-is($ow->behaviour, 'w',		$harness->cond("override behaviour"));
+my $obs = ord("\\");	# windows backslash
+my $ofs = ord("/");	# windows backslash
 
-#isnt($ou->slash($pn_rel), $ow->slash($pn_rel),	"slash differs with behaviour");
+$harness->log->debug("obs [$obs] ofs [$ofs]");
+
+while (my ($unix, $slash) = each %uxp) {
+
+	my $normal = $harness->fs2bs($unix);
+
+	is(length($normal), length($unix),	$harness->cond("fs2bs length"));
+
+	is($os0->slash($normal), $normal,	$harness->cond("slash shellify off"));
+
+	is($os1->slash($normal), $slash,	$harness->cond("slash shellify on"));
+}
 
 
 __END__

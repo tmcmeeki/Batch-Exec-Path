@@ -13,7 +13,7 @@ use Harness;
 Log::Log4perl->easy_init($DEBUG);
 
 my $harn = Harness->new("hello");
-$harn->planned(488);
+$harn->planned(491);
 
 is($harn->this, "hello",		"this");
 
@@ -104,4 +104,9 @@ is(scalar(@paths), 29,				$harn->cond("valid"));
 
 # --- all_paths ---
 is(scalar($harn->all_paths), 33,		$harn->cond("all_paths"));
+
+# --- fs2bs ---
+is($harn->fs2bs("/"), "\\",			$harn->cond("fs2bs"));
+is($harn->fs2bs("//"), "\\\\",			$harn->cond("fs2bs"));
+is($harn->fs2bs("a/b/c"), "a\\b\\c",		$harn->cond("fs2bs"));
 

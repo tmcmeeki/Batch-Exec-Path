@@ -36,6 +36,8 @@ my %attribute = (
 	_path => undef,
 	_planned => 0,
 	_cycle => { 'default' => 0 },
+	obs => ord("\\"),	# windows backslash
+	ofs => ord("/"),	# unix [forward]slash
 	dummy => "IGNORE overidden dummy exit routine\n",
 	executed => 0,
 	log => get_logger(__FILE__),
@@ -290,6 +292,33 @@ sub all_paths {
 	}
 
 	return @paths;
+}
+
+
+sub fs2bs {	# byte-level conversion of forward-slash to back-slash
+	my $self = shift;
+	my $str = shift;
+	confess "SYNTAX: fs2bs(EXPR)" unless defined($str);
+
+	my $obs = $self->obs;
+	my $ofs = $self->ofs;
+
+	$self->log->trace("obs [$obs] ofs [$ofs]");
+
+	my @str = unpack "C*", $str;
+
+	$self->log->trace(sprintf "str [$str] str [%s]", Dumper(\@str));
+
+	for (my $i = 0; $i < @str; $i++) {
+
+		$str[$i] = $obs if ($str[$i] == $ofs);
+	}
+
+	$str = pack "C*", @str;
+
+	$self->log->trace(sprintf "str [$str] str [%s]", Dumper(\@str));
+
+	return $str;
 }
 
 
