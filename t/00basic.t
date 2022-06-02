@@ -8,7 +8,7 @@ use strict;
 use Data::Dumper;
 use Log::Log4perl qw/ :easy /;
 #use Logfer qw/ :all /;
-use Test::More tests => 61;
+use Test::More tests => 97;
 
 BEGIN { use_ok('Batch::Exec::Path') };
 
@@ -38,7 +38,7 @@ isa_ok($obp, "Batch::Exec",		"class check $cycle"); $cycle++;
 # -------- attributes --------
 my @cttr = $obc->Attributes;
 my @pttr = $obp->Attributes;
-is(scalar(@cttr) - scalar(@pttr), 4,	"class attributes");
+is(scalar(@cttr) - scalar(@pttr), 13,	"class attributes");
 is(shift @cttr, 'Batch::Exec::Path',	"class okay");
 
 for my $attr (@cttr) {

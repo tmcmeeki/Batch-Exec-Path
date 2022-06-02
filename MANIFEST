@@ -1,6 +1,13 @@
 Changes
+LICENSE
 Makefile.PL
 MANIFEST
 README
-t/Batch-Exec-Path.t
 lib/Batch/Exec/Path.pm
+t/00basic.t
+t/01primitive.t
+t/02split.t
+t/03volume.t
+t/04other.t
+t/Harness.pm
+t/harness.t

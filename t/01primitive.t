@@ -58,24 +58,34 @@ is(-d $o1->dn_start, $o1->extant($o1->dn_start),	"dn_start extant");
 is(-d $o1->home, $o1->extant($o1->home),		"home extant");
 
 
-# -------- wsl-related --------
+# -------- TLD and WSLROOT --------
 if ($o1->on_wsl) {
 
+	$log->info("platform: WSL");
+
 	like($o1->_wslroot, qr/wsl/,	"_wslroot defined");
+	like($o1->wslroot, qr/wsl/,	"wslroot defined");
 	is($o1->tld, "/mnt",		"default tld");
 
 } elsif ($o1->on_cygwin) {
 
-	like($o1->_wslroot, qr/wsl/,	"_wslroot defined");
-	is($o1->tld, "/cygwin",		"default tld");
-} else {
+	$log->info("platform: CYGWIN");
+
 	is($o1->_wslroot, undef,	"_wslroot undefined");
+	is($o1->wslroot, undef,		"wslroot undefined");
+	is($o1->tld, "/cygdrive",	"default tld");
+} else {
+
+	$log->info("platform: OTHER");
+
+	is($o1->_wslroot, undef,	"_wslroot undefined");
+	is($o1->wslroot, undef,		"wslroot undefined");
 	is($o1->tld, "/",		"default tld");
 }
 
 
 $log->info(sprintf "HOME is [%s]", $o1->home);
-
+exit -1;
 
 # -------- normalise --------
 for my $pn ($harness->all_paths) {
