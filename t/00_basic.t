@@ -8,7 +8,7 @@ use strict;
 use Data::Dumper;
 use Log::Log4perl qw/ :easy /;
 #use Logfer qw/ :all /;
-use Test::More tests => 97;
+use Test::More tests => 113;
 
 BEGIN { use_ok('Batch::Exec::Path') };
 

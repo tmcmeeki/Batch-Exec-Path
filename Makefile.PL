@@ -10,12 +10,16 @@ WriteMakefile(
     NAME              => 'Batch::Exec::Path',
     VERSION_FROM      => 'lib/Batch/Exec/Path.pm', # finds $VERSION, requires EU::MM from perl >= 5.5
     PREREQ_PM         => {
-        'Carp' => '0',
-        'Data::Dumper' => '0',
-        'Log::Log4perl' => '0',
+	'Batch::Exec' => '0',
+	'Carp' => '0',
+	'Data::Dumper' => '0',
+	'File::HomeDir' => '0',
+	'Log::Log4perl' => '0',
+	'Logfer' => '0',
+	'Path::Class' => '0',
+	'Path::Tiny' => '0',
 }, # e.g., Module::Name => 1.1
     ABSTRACT_FROM     => 'lib/Batch/Exec/Path.pm', # retrieve abstract from module
-
     dist              => { PREOP => $_swap_vers, },
     AUTHOR            => 'TMCMEEKI  <tmcmeeki@cpan.org>',
     LICENSE           => 'gpl_3',

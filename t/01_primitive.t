@@ -75,7 +75,7 @@ if ($o1->on_wsl) {
 	$log->info("platform: CYGWIN");
 
 	isnt($o1->_wslroot, undef,	"_wslroot defined");
-	if ($o1->wsl_installed) {
+	if ($o1->wsl_active) {
 		isnt($o1->wslroot, undef,	"wslroot defined");
 	} else {
 		is($o1->wslroot, undef,	"wslroot defined");
@@ -87,7 +87,7 @@ if ($o1->on_wsl) {
 	$log->info("platform: Windows");
 
 	isnt($o1->_wslroot, undef,	"_wslroot defined");
-	if ($o1->wsl_installed) {
+	if ($o1->wsl_active) {
 		isnt($o1->wslroot, undef,	"wslroot defined");
 	} else {
 		is($o1->wslroot, undef,	"wslroot defined");

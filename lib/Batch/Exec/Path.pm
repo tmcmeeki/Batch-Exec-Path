@@ -10,7 +10,7 @@ Copyright (C) 2021  B<Tom McMeekin> tmcmeeki@cpan.org
 
 =head1 SYNOPSIS
 
-use Batch::Exec::Path;
+  use Batch::Exec::Path;
 
 
 =head1 DESCRIPTION
@@ -529,8 +529,10 @@ sub _wslroot {	# determine the host location of the WSL distro root
 		$self->log->debug(sprintf "ENV_WSL_DISTRO [%s]", ENV_WSL_DISTRO);
 	} else {
 		$self->log->logwarn("WARNING shell variable undefined: WSL_DISTRO_NAME");
-		$dist = $self->wsl_distro;
+		$dist = $self->wsl_dist;
 	}
+	$dist = $self->null unless (defined $dist);
+
 	$self->log->debug(sprintf "dist [%s]", $dist);
 	$self->log->debug(sprintf "DN_ROOT_WSL [%s]", DN_ROOT_WSL);
 
