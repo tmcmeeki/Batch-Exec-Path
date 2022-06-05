@@ -82,6 +82,9 @@ use parent 'Batch::Exec';
 use Carp qw(cluck confess);
 use Data::Dumper;
 
+#use File::Spec;
+#use File::Spec::Unix qw/ :ALL /;
+#require File::Spec::Win32;
 require File::HomeDir;
 require Path::Class;
 require Path::Tiny;
@@ -95,6 +98,7 @@ use constant ENV_WSL_DISTRO => $ENV{'WSL_DISTRO_NAME'};
 use constant DN_MOUNT_WSL => "/mnt";
 use constant DN_MOUNT_CYG => "/cygdrive";
 use constant DN_ROOT_WSL => '//wsl$';	# this is a WSL location only
+					# e.g. \\wsl$\Ubuntu\home (from DOS)
 
 use constant RE_DELIM_U => qr[\/];	# the forward-slash regexp for unix
 use constant RE_DELIM_W => qr[\\];	# the back-slash regexp for windows
@@ -199,21 +203,6 @@ sub new {
 	# ___ additional class initialisation here ___
 
 	return $self;
-}
-
-
-sub _wslroot {	# determine the host location of the WSL distro root raw value
-	my $self = shift;
-
-	return undef unless ($self->on_wsl);
-
-	my $pt = path("/" . DN_ROOT_WSL)->child(ENV_WSL_DISTRO);
-
-	my $dn = $pt->canonpath;
-
-	$self->log->debug("dn [$dn]");
-
-	return $dn;
 }
 
 
@@ -406,7 +395,7 @@ sub splitdir {	# split a path into tokens and return array
 	my $dn = join('/', @dn);
 
 	# Path::Tiny which gets rid of rubbish duplicates
-	my $pn = path($dn);	# a Path::Tiny object now only forward slashes
+	my $pn = Path::Tiny::path($dn);	# a Path::Tiny object now only forward slashes
 
 	$self->log->debug(sprintf "canonpath [%s]", $pn->canonpath);
 	$self->log->debug(sprintf "absolute [%s]", $pn->absolute);
@@ -520,12 +509,54 @@ sub wslhome {	# determine the host location of the WSL user home
 }
 
 
+sub _wslroot {	# determine the host location of the WSL distro root
+#	note that this only has relevance on a Windows-like system, but
+#	not really within the WSL itself, so the latter is contrived.
+#	this routine generates a likely WSL root, regardless of its existence.
+	my $self = shift;
+
+	unless ($self->like_windows) {
+
+		$self->log->logwarn("WSL does not exist on this platform");
+
+		return undef;
+	}
+
+	my $dist; if (defined ENV_WSL_DISTRO) {
+
+		$dist = ENV_WSL_DISTRO;
+
+		$self->log->debug(sprintf "ENV_WSL_DISTRO [%s]", ENV_WSL_DISTRO);
+	} else {
+		$self->log->logwarn("WARNING shell variable undefined: WSL_DISTRO_NAME");
+		$dist = $self->wsl_distro;
+	}
+	$self->log->debug(sprintf "dist [%s]", $dist);
+	$self->log->debug(sprintf "DN_ROOT_WSL [%s]", DN_ROOT_WSL);
+
+	my $wslr = join($self->deu, DN_ROOT_WSL, $dist);
+
+	$self->log->debug(sprintf "wslr [%s]", $wslr);
+
+	return $wslr;
+}
+
+
 sub wslroot {	# determine the host location of the WSL distro root
 	my $self = shift;
 
-	return undef unless ($self->on_wsl);
+	#return undef unless ($self->on_windows);
+	return undef unless ($self->like_windows);
 
-	return $self->slash($self->_wslroot);
+	my $dn_wsl = $self->slash($self->_wslroot);
+
+	return undef unless(-d $dn_wsl);
+
+#	my $files = readpipe(sprintf "%s %s", ($self->on_windows) ? "dir" : "ls", $dn_wsl);
+
+#	$self->log->debug("files [$files]");
+
+	return $dn_wsl;
 }
 
 #sub END { }

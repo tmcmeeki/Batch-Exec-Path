@@ -1,6 +1,6 @@
 #!/usr/bin/perl
 #
-# 01primitive.t - test harness for the Batch::Exec::Path.pm module: primitives
+# 01_primitive.t - test harness for the Batch::Exec::Path.pm module: primitives
 #
 use strict;
 
@@ -51,6 +51,8 @@ is($o1->home("foo"), "foo",		"home override set");
 is($o1->home, "foo",			"home override query");
 like($o1->home(undef), $reh,		"home default");
 
+$log->info(sprintf "HOME is [%s]", $o1->home);
+
 
 # -------- extant --------
 is(-d ".", $o1->extant("."),				"dot extant");
@@ -64,16 +66,34 @@ if ($o1->on_wsl) {
 	$log->info("platform: WSL");
 
 	like($o1->_wslroot, qr/wsl/,	"_wslroot defined");
-	like($o1->wslroot, qr/wsl/,	"wslroot defined");
+
+	is($o1->wslroot, undef,		"wslroot undefined");
 	is($o1->tld, "/mnt",		"default tld");
 
 } elsif ($o1->on_cygwin) {
 
 	$log->info("platform: CYGWIN");
 
-	is($o1->_wslroot, undef,	"_wslroot undefined");
-	is($o1->wslroot, undef,		"wslroot undefined");
+	isnt($o1->_wslroot, undef,	"_wslroot defined");
+	if ($o1->wsl_installed) {
+		isnt($o1->wslroot, undef,	"wslroot defined");
+	} else {
+		is($o1->wslroot, undef,	"wslroot defined");
+	}
 	is($o1->tld, "/cygdrive",	"default tld");
+
+} elsif ($o1->on_windows) {
+
+	$log->info("platform: Windows");
+
+	isnt($o1->_wslroot, undef,	"_wslroot defined");
+	if ($o1->wsl_installed) {
+		isnt($o1->wslroot, undef,	"wslroot defined");
+	} else {
+		is($o1->wslroot, undef,	"wslroot defined");
+	}
+	is($o1->tld, "/",		"default tld");
+
 } else {
 
 	$log->info("platform: OTHER");
@@ -82,10 +102,8 @@ if ($o1->on_wsl) {
 	is($o1->wslroot, undef,		"wslroot undefined");
 	is($o1->tld, "/",		"default tld");
 }
-
-
-$log->info(sprintf "HOME is [%s]", $o1->home);
 exit -1;
+
 
 # -------- normalise --------
 for my $pn ($harness->all_paths) {
@@ -176,7 +194,7 @@ __END__
 
 =head1 DESCRIPTION
 
-01primitive.t - test harness for the Batch::Exec::Path.pm module: primitives
+01_primitive.t - test harness for the Batch::Exec::Path.pm module: primitives
 
 =head1 VERSION
 
