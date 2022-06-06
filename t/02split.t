@@ -70,21 +70,6 @@ my $o2 = Batch::Exec::Path->new('shellify' => 1);
 isa_ok($o2, "Batch::Exec::Path",	"class check $cycle"); $cycle++;
 
 
-# ---- wslroot ----
-if ($o1->on_wsl) {
-	like($o1->wslroot, qr/wsl/,	"wslroot IS on_wsl raw");
-	like($o2->wslroot, qr/wsl/,	"wslroot IS on_wsl convert");
-
-	like($o1->wslhome, qr/wsl.*home/,	"wslhome IS on_wsl raw");
-	like($o2->wslhome, qr/wsl.*home/,	"wslhome IS on_wsl convert");
-} else {
-	is($o1->wslroot, undef,	"wslroot ISNT on_wsl raw");
-	is($o2->wslroot, undef,	"wslroot ISNT on_wsl convert");
-
-	is($o1->wslhome, undef,	"wslhome ISNT on_wsl raw");
-	is($o2->wslhome, undef,	"wslhome ISNT on_wsl convert");
-}
-
 # ---- splitdir basic ----
 my $dn_winc = 'C:\Users\abc';
 my $dn_wind = 'D:\Users\abc';

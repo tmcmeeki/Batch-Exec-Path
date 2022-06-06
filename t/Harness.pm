@@ -26,7 +26,8 @@ use warnings;
 
 use Carp qw(cluck confess);     # only use stack backtrace within class
 use Data::Dumper;
-use Log::Log4perl qw/ :easy /;
+#use Log::Log4perl qw/ :easy /;
+use Logfer qw/ :all /;
 use Test::More;
 
 our $AUTOLOAD;
@@ -36,12 +37,13 @@ my %attribute = (
 	_path => undef,
 	_planned => 0,
 	_cycle => { 'default' => 0 },
-	obs => ord("\\"),	# windows backslash
-	ofs => ord("/"),	# unix [forward]slash
-	dummy => "IGNORE overidden dummy exit routine\n",
 	executed => 0,
 	log => get_logger(__FILE__),
 	msg => 'field [%s] does not exist in hash [%s]',
+	obs => ord("\\"),	# windows backslash
+	ofs => ord("/"),	# unix [forward]slash
+	osp => ord(" "),
+	osq => ord("'"),
 	this => undef,
 );
 
@@ -272,14 +274,14 @@ sub filter {
 sub invalid {
 	my $self = shift;
 
-	return $self->filter("valid", 0);
+	return $self->filter("valid", 0); # valid flag is OFF
 }
 
 
 sub valid {
 	my $self = shift;
 
-	return $self->filter("valid", 1);
+	return $self->filter("valid", 1); # valid flag is ON
 }
 
 
@@ -299,9 +301,13 @@ sub fs2bs {	# byte-level conversion of forward-slash to back-slash
 	my $self = shift;
 	my $str = shift;
 	confess "SYNTAX: fs2bs(EXPR)" unless defined($str);
+	my $shell = shift; $shell = 0 unless defined($shell);
+	# if true, shell will insert a backslash
 
 	my $obs = $self->obs;
 	my $ofs = $self->ofs;
+	my $osp = $self->osp;
+	my $osq = $self->osq;
 
 	$self->log->trace("obs [$obs] ofs [$ofs]");
 
@@ -309,14 +315,29 @@ sub fs2bs {	# byte-level conversion of forward-slash to back-slash
 
 	$self->log->trace(sprintf "str [$str] str [%s]", Dumper(\@str));
 
-	for (my $i = 0; $i < @str; $i++) {
+	my @new; for my $c (@str) {
 
-		$str[$i] = $obs if ($str[$i] == $ofs);
+		if ( $c == $ofs || $c == $osp || $c == $osq ) {
+			push @new, $obs		# insert shellified backslash
+				if ($shell);
+		}
+
+		if ($c == $ofs) {
+			push @new, $obs;	# convert slash to backslash
+		} else {
+			push @new, $c;
+		}
 	}
 
-	$str = pack "C*", @str;
+#	for (my $i = 0; $i < @str; $i++) {
+#
+#		$str[$i] = $obs if ($str[$i] == $ofs);
+#	}
+#
+#	$str = pack "C*", @str;
+	$str = pack "C*", @new;
 
-	$self->log->trace(sprintf "str [$str] str [%s]", Dumper(\@str));
+	$self->log->trace(sprintf "str [$str] new [%s]", Dumper(\@new));
 
 	return $str;
 }

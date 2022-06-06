@@ -42,7 +42,7 @@ my $o1 = Batch::Exec::Path->new;
 isa_ok($o1, $harness->this,	"class check $cycle"); $cycle++;
 
 
-# -------- home and overrides --------
+# -------- home --------
 my $reh = qr/(home|users)/i;
 isnt($o1->home, "",			"home defined");
 like($o1->home, $reh,			"home matches");
@@ -60,7 +60,7 @@ is(-d $o1->dn_start, $o1->extant($o1->dn_start),	"dn_start extant");
 is(-d $o1->home, $o1->extant($o1->home),		"home extant");
 
 
-# -------- TLD and WSLROOT --------
+# -------- tld and wslroot --------
 if ($o1->on_wsl) {
 
 	$log->info("platform: WSL");
@@ -102,7 +102,6 @@ if ($o1->on_wsl) {
 	is($o1->wslroot, undef,		"wslroot undefined");
 	is($o1->tld, "/",		"default tld");
 }
-exit -1;
 
 
 # -------- normalise --------
@@ -150,20 +149,49 @@ is($os0->behaviour, 'u',		$harness->cond("behaviour unix"));
 is($os0->behaviour, $os1->behaviour,	$harness->cond("behaviour match"));
 
 my %uxp = (	# first = path (unmodified), second = slash result
-	'foo' => 'foo',
-	'foo bar' => q{foo\ bar},
-	'foo/bar' => q{foo\/bar},
-	'/foo/bar' => q{\/foo\/bar},
-	'/foo/bar/' => q{\/foo\/bar\/},
-	q{foo'bar} => q{foo\'bar},
-	'/fu/man/chu' => q{\/fu\/man\/chu},
-	' fu man chu ' => q{\ fu\ man\ chu\ },
+  'a' => { 'base' => 'foo',		'us' => 'foo',
+					'wd' => 'foo',
+					'ws' => 'foo',
+	},
+  'b' => { 'base' => 'foo bar',		'us' => q{foo\ bar},
+					'wd' => 'foo bar',
+					'ws' => q{foo\ bar},
+	},
+  'c' => { 'base' => 'foo/bar',		'us' => q{foo\/bar},
+					'wd' => q{foo\bar},
+					'ws' => q{foo\\bar},
+	},
+  'd' => { 'base' => '/foo/bar',	'us' => q{\/foo\/bar},
+					'wd' => q{\foo\bar},
+					'ws' => q{\\foo\\bar},
+	},
+  'e' => { 'base' => '/foo/bar/',	'us' => q{\/foo\/bar\/},
+#					'wd' => q{\foo\bar\},
+# these are causing syntax errors so the windows tests are delegated to "Harness"
+					'ws' => q{\\foo\\bar\\},
+	},
+  'f' => { 'base' => q{foo'bar},	'us' => q{foo\'bar},
+					'wd' => q{foo'bar},
+					'ws' => q{foo\'bar},
+	},
+  'g' => { 'base' => '/fu/man/chu',	'us' => q{\/fu\/man\/chu},
+					'wd' => q{\fu\man/chu},
+					'ws' => q{\\fu\\man\\chu},
+	},
+  'h' => { 'base' => ' fu man chu ',	'us' => q{\ fu\ man\ chu\ },
+					'wd' => ' fu man chu ',
+					'ws' => q{\ fu\ man\ chu\ },
+	},
 );
-while (my ($normal, $slash) = each %uxp) {
+#while (my ($cond, $rh) = each %uxp) {
+for my $cond (sort keys %uxp) {
+	my $rh = $uxp{$cond};
+	my $base = $rh->{'base'};
+	my $shell = $rh->{'us'};
 
-	is($os0->slash($normal), $normal,	$harness->cond("slash shellify off"));
+	is($os0->slash($base), $base,	$harness->cond("slash shellify OFF unix cond=$cond"));
 
-	is($os1->slash($normal), $slash,	$harness->cond("slash shellify on"));
+	is($os1->slash($base), $shell,	$harness->cond("slash shellify ON unix cond=$cond"));
 }
 
 
@@ -173,20 +201,46 @@ $os1->behaviour('w');
 is($os0->behaviour, 'w',		$harness->cond("behaviour wind"));
 is($os0->behaviour, $os1->behaviour,	$harness->cond("behaviour match"));
 
-my $obs = ord("\\");	# windows backslash
-my $ofs = ord("/");	# windows backslash
+for my $cond (sort keys %uxp) {
+	my $rh = $uxp{$cond};
+	my $base = $rh->{'base'};
+	my $wd = $rh->{'wd'};
+	my $ws = $rh->{'ws'};
 
-$harness->log->debug("obs [$obs] ofs [$ofs]");
+#	wd and ws testing does not naturally parse correctly so
+#	have delegate to the t/Harness.pm module
 
-while (my ($unix, $slash) = each %uxp) {
+	my $hd = $harness->fs2bs($base);
+	my $hs = $harness->fs2bs($base, 1);
 
-	my $normal = $harness->fs2bs($unix);
+	is(length($hd), length($base),	$harness->cond("fs2bs length"));
 
-	is(length($normal), length($unix),	$harness->cond("fs2bs length"));
+#	is($os0->slash($base), $wd,	$harness->cond("slash shellify OFF wd cond=$cond"));
+	is($os0->slash($base), $hd,	$harness->cond("slash shellify OFF hd cond=$cond"));
 
-	is($os0->slash($normal), $normal,	$harness->cond("slash shellify off"));
+#	is($os1->slash($base), $ws,	$harness->cond("slash shellify ON ws cond=$cond"));
+#	$log->debug("wd [$wd] ws [$ws]") if ($cond eq 'c');
+	is($os1->slash($base), $hs,	$harness->cond("slash shellify ON hs cond=$cond"));
+}
 
-	is($os1->slash($normal), $slash,	$harness->cond("slash shellify on"));
+exit -1;
+
+# -------- wslhome --------
+my $o3 = Batch::Exec::Path->new;
+isa_ok($o3, $harness->this,	"class check $cycle"); $cycle++;
+
+if ($o3->on_windows) {
+	like($o1->wslroot, qr/wsl/,	"wslroot IS on_wsl raw");
+	like($o3->wslroot, qr/wsl/,	"wslroot IS on_wsl convert");
+
+	like($o1->wslhome, qr/wsl.*home/,	"wslhome IS on_wsl raw");
+	like($o3->wslhome, qr/wsl.*home/,	"wslhome IS on_wsl convert");
+} else {
+	is($o1->wslroot, undef,	"wslroot ISNT on_wsl raw");
+	is($o3->wslroot, undef,	"wslroot ISNT on_wsl convert");
+
+	is($o1->wslhome, undef,	"wslhome ISNT on_wsl raw");
+	is($o3->wslhome, undef,	"wslhome ISNT on_wsl convert");
 }
 
 
