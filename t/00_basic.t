@@ -8,7 +8,7 @@ use strict;
 use Data::Dumper;
 use Log::Log4perl qw/ :easy /;
 #use Logfer qw/ :all /;
-use Test::More tests => 113;
+use Test::More tests => 123;
 
 BEGIN { use_ok('Batch::Exec::Path') };
 
@@ -94,6 +94,49 @@ if ($obc->like_unix) {
 	is($obc->behaviour, "u",	"unix behaviour like_unix");
 } else {
 	is($obc->behaviour, "w",	"windows behaviour unlike unix");
+}
+
+
+# -------- home --------
+my $o1 = Batch::Exec::Path->new;
+isa_ok($o1, "Batch::Exec::Path",	"class check $cycle"); $cycle++;
+
+my $reh = qr/(home|users)/i;
+
+isnt($o1->home, "",			"home defined");
+like($o1->home, $reh,			"home matches");
+
+is($o1->home("foo"), "foo",		"home override set");
+is($o1->home, "foo",			"home override query");
+like($o1->home(undef), $reh,		"home default");
+
+$log->info(sprintf "HOME is [%s]", $o1->home);
+
+
+# -------- extant --------
+is(-d ".", $o1->extant("."),				"dot extant");
+is(-d $o1->dn_start, $o1->extant($o1->dn_start),	"dn_start extant");
+is(-d $o1->home, $o1->extant($o1->home),		"home extant");
+
+
+# -------- tld --------
+if ($o1->on_wsl) {
+
+	$log->info("platform: WSL");
+
+	is($o1->tld, "/mnt",		"default tld");
+
+} elsif ($o1->on_cygwin) {
+
+	$log->info("platform: CYGWIN");
+
+	is($o1->tld, "/cygdrive",	"default tld");
+
+} else {
+
+	$log->info("platform: OTHER");
+
+	is($o1->tld, "/",		"default tld");
 }
 
 

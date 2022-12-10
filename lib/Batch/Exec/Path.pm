@@ -86,7 +86,7 @@ use Data::Dumper;
 #use File::Spec::Unix qw/ :ALL /;
 #require File::Spec::Win32;
 require File::HomeDir;
-require Path::Class;
+#require Path::Class;
 require Path::Tiny;
 
 #use Log::Log4perl qw(:levels);	# debugging
@@ -99,6 +99,7 @@ use constant DN_MOUNT_WSL => "/mnt";
 use constant DN_MOUNT_CYG => "/cygdrive";
 use constant DN_ROOT_WSL => '//wsl$';	# this is a WSL location only
 					# e.g. \\wsl$\Ubuntu\home (from DOS)
+use constant FN_HOME => "home";
 
 use constant RE_DELIM_U => qr[\/];	# the forward-slash regexp for unix
 use constant RE_DELIM_W => qr[\\];	# the back-slash regexp for windows
@@ -270,27 +271,29 @@ sub home {	# provide a value for a home directory
 }
 
 
-sub catdir {	# split a DOS or path into tokens and return array
+sub joiner {	# join components together into a normalised path
 	my $self = shift;
-	confess "SYNTAX: catdir(EXPR, EXPR)" unless (@_);
+	confess "SYNTAX: joiner(EXPR, ...)" unless (@_);
 
-	my @dn = $self->splitdir(@_);
+	my $reu = $self->reu;
 
-	use Path::Class;
+	# not sure if the normalisation/split per parameter is necessary
+	#   as the splitter function does a normalisation anyway
+	# should be basing this off an already parsed path?? maybe
+	# should be aware of the parts of the path through the parse() routine
+	# ... see the splitter function
 
-	my $pn = join('/', @dn);
+	my $pn = join($self->deu, @_);
 
-	my $pc = file($pn);	# Path::Class constructor
-	my $dos = $pc->as_foreign('Win32');
+	my @pn = $self->splitter($pn);	# this should force a parse
 
-	$self->log->debug("dos [$dos]");
+	$self->log->debug(sprintf "pn [%s]", Dumper(\@pn));
 
+	$pn = join($self->deu, @pn);
 
-	my $dn = join('\\', @dn);
+	$self->log->debug("pn [$pn]");
 
-	$self->log->debug(sprintf "dn [$dn] dn [%s]", Dumper(\@dn));
-
-	return $self->slash($dn);
+	return $pn;
 }
 
 
@@ -364,6 +367,8 @@ sub splitter {	# normalise a path to unix delimeters and split into components
 	$self->log->debug(sprintf "pn [%s]", Dumper(\@pn));
 
 	$self->parts([ @pn ]);
+
+	NEED to do the parse() routine here, on the "parts" using tld, volume, etc.
 
 	return @pn;
 }
@@ -487,25 +492,17 @@ sub winpath {
 sub wslhome {	# determine the host location of the WSL user home
 	my $self = shift;
 
-	return undef unless ($self->on_wsl);
+	return undef unless ($self->like_windows);
 
-#	Slash actually works natively in Powershell: //wsl$/Ubuntu/home/jbloggs
-#	However, not sure we need this context so use Windows-friendly
-#	backslashes, i.e. \\wsl$\Ubuntu\home\jbloggs
+	my $root = $self->_wslroot;
 
-	#return $self->slash($self->winpath($self->wslroot . '\\' . $self->home)) ;
-	my @dnh = $self->splitdir($self->home); # e.g. /home/jbloggs
-	$self->log->debug(sprintf "dnh [%s]", Dumper(\@dnh));
+	return undef unless defined($root);
 
-	shift @dnh;	# get rid of the root prefix, e.g. home/jbloggs
+	my $home = $self->joiner($self->_wslroot, FN_HOME);
 
-	my $dn = join('/', $self->_wslroot, @dnh);
+	return undef unless(-d $home);
 
-	my @dn = $self->splitdir($dn);
-
-	$dn = $self->catdir(@dn);
-
-	return $self->slash($dn);
+	return $self->slash($home);
 }
 
 
@@ -550,15 +547,13 @@ sub wslroot {	# determine the host location of the WSL distro root
 	#return undef unless ($self->on_windows);
 	return undef unless ($self->like_windows);
 
-	my $dn_wsl = $self->slash($self->_wslroot);
+	my $root = $self->_wslroot;
 
-	return undef unless(-d $dn_wsl);
+	return undef unless(-d $root);
 
-#	my $files = readpipe(sprintf "%s %s", ($self->on_windows) ? "dir" : "ls", $dn_wsl);
+	#my $files = readpipe(sprintf "%s %s", ($self->on_windows) ? "dir" : "ls", $root); $self->log->debug("files [$files]");
 
-#	$self->log->debug("files [$files]");
-
-	return $dn_wsl;
+	return $self->slash($root);
 }
 
 #sub END { }

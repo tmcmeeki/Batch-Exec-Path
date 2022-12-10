@@ -20,7 +20,7 @@ use Harness;
 #BEGIN { use_ok('Batch::Exec::Path') };
 my $harness = Harness->new('Batch::Exec::Path');
 
-$harness->planned(256);
+$harness->planned(246);
 use_ok($harness->this);
 #require_ok($harness->this);
 
@@ -42,74 +42,13 @@ my $o1 = Batch::Exec::Path->new;
 isa_ok($o1, $harness->this,	"class check $cycle"); $cycle++;
 
 
-# -------- home --------
-my $reh = qr/(home|users)/i;
-isnt($o1->home, "",			"home defined");
-like($o1->home, $reh,			"home matches");
-
-is($o1->home("foo"), "foo",		"home override set");
-is($o1->home, "foo",			"home override query");
-like($o1->home(undef), $reh,		"home default");
-
-$log->info(sprintf "HOME is [%s]", $o1->home);
-
-
-# -------- extant --------
-is(-d ".", $o1->extant("."),				"dot extant");
-is(-d $o1->dn_start, $o1->extant($o1->dn_start),	"dn_start extant");
-is(-d $o1->home, $o1->extant($o1->home),		"home extant");
-
-
-# -------- tld and wslroot --------
-if ($o1->on_wsl) {
-
-	$log->info("platform: WSL");
-
-	like($o1->_wslroot, qr/wsl/,	"_wslroot defined");
-
-	is($o1->wslroot, undef,		"wslroot undefined");
-	is($o1->tld, "/mnt",		"default tld");
-
-} elsif ($o1->on_cygwin) {
-
-	$log->info("platform: CYGWIN");
-
-	isnt($o1->_wslroot, undef,	"_wslroot defined");
-	if ($o1->wsl_active) {
-		isnt($o1->wslroot, undef,	"wslroot defined");
-	} else {
-		is($o1->wslroot, undef,	"wslroot defined");
-	}
-	is($o1->tld, "/cygdrive",	"default tld");
-
-} elsif ($o1->on_windows) {
-
-	$log->info("platform: Windows");
-
-	isnt($o1->_wslroot, undef,	"_wslroot defined");
-	if ($o1->wsl_active) {
-		isnt($o1->wslroot, undef,	"wslroot defined");
-	} else {
-		is($o1->wslroot, undef,	"wslroot defined");
-	}
-	is($o1->tld, "/",		"default tld");
-
-} else {
-
-	$log->info("platform: OTHER");
-
-	is($o1->_wslroot, undef,	"_wslroot undefined");
-	is($o1->wslroot, undef,		"wslroot undefined");
-	is($o1->tld, "/",		"default tld");
-}
-
-
 # -------- normalise --------
 for my $pn ($harness->all_paths) {
 	my $o2 = Batch::Exec::Path->new;
 	my $re = $o2->reu;
 
-	like($o2->normalise($pn), $re,	$harness->cond("normalised to unix"));
+#	like($o2->normalise($pn), $re,	$harness->cond("normalised to unix"));
+	is(length($o2->normalise($pn)), length($pn),	$harness->cond("normalised length"));
 
 	is($o2->raw, $pn,		$harness->cond("normalised raw"));
 
@@ -126,7 +65,11 @@ for my $pn ($harness->all_paths) {
 
 	my @pn = $o3->splitter($pn);
 
-	ok(@pn >= 1, 			$harness->cond("splitter gt zero"));
+	if ($pn eq '/') {
+		ok(@pn == 0, 		$harness->cond("splitter is zero"));
+	} else {
+		ok(@pn >= 1, 		$harness->cond("splitter gt zero"));
+	}
 
 	isnt($o3->raw, "", 		$harness->cond("raw not null"));
 
@@ -221,26 +164,6 @@ for my $cond (sort keys %uxp) {
 #	is($os1->slash($base), $ws,	$harness->cond("slash shellify ON ws cond=$cond"));
 #	$log->debug("wd [$wd] ws [$ws]") if ($cond eq 'c');
 	is($os1->slash($base), $hs,	$harness->cond("slash shellify ON hs cond=$cond"));
-}
-
-exit -1;
-
-# -------- wslhome --------
-my $o3 = Batch::Exec::Path->new;
-isa_ok($o3, $harness->this,	"class check $cycle"); $cycle++;
-
-if ($o3->on_windows) {
-	like($o1->wslroot, qr/wsl/,	"wslroot IS on_wsl raw");
-	like($o3->wslroot, qr/wsl/,	"wslroot IS on_wsl convert");
-
-	like($o1->wslhome, qr/wsl.*home/,	"wslhome IS on_wsl raw");
-	like($o3->wslhome, qr/wsl.*home/,	"wslhome IS on_wsl convert");
-} else {
-	is($o1->wslroot, undef,	"wslroot ISNT on_wsl raw");
-	is($o3->wslroot, undef,	"wslroot ISNT on_wsl convert");
-
-	is($o1->wslhome, undef,	"wslhome ISNT on_wsl raw");
-	is($o3->wslhome, undef,	"wslhome ISNT on_wsl convert");
 }
 
 
