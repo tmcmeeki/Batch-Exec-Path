@@ -42,7 +42,7 @@ my $o2 = Batch::Exec::Path->new('shellify' => 1);
 isa_ok($o1, $harness->this,	"class check $cycle"); $cycle++;
 
 
-# -------- parse --------
+# -------- parse (specific) --------
 is($o1->parse("./tmp"), 4,		"parse tmp");
 is($o1->abs, 0,				"abs $cycle");
 is($o1->drive, undef,			"drive $cycle");
@@ -338,6 +338,13 @@ is_deeply($o1->folders, [],		"folders $cycle");
 is($o1->drive, undef,			"drive $cycle");
 is($o1->letter, undef,			"letter $cycle");
 is($o1->server, undef,			"server $cycle");
+
+
+# -------- parse (harness) --------
+for my $pn ($harness->all_paths) {
+
+	isnt($o1->homed, undef,		$harness->cond("homed $pn");
+}
 
 __END__
 
