@@ -19,56 +19,21 @@ ___detailed_class_description_here___
 
 =over 4
 
-=item 10a.  OBJ->behaviour(EXPR)
+=item OBJ->behaviour(EXPR)
 
 Set the path parsing behaviour to one of "w" (Windows-like) or "u" (Unix-like).
 A platform-dependent default applies.
 
-
-=item 10a.  OBJ->shellify(BOOLEAN)
+=item OBJ->shellify(BOOLEAN)
 
 Useful when converting paths for shell-calls to Windows-like interpreters
 backslashes are appropriately delimeted, e.g. \ becomes \\.
 Default is 0 (off = do not shellify).
 
-
-=item 10d.  OBJ->parse(PATH)
-
-Converts a Windows-style path, e.g. C:\WINDOWS to that of a hybrid OS platform.
-E.g. for Cygwin this might be /cygrive/c/WINDOWS
-and for WSL this might be /mnt/c/WINDOWS.
-
-
-=item 10e.  OBJ->tld
-
-Return the top-level directory component for a hybrid OS, e.g. cygwin or mnt.
-
-
-=item 10g.  OBJ->winpath(PATH)
+=item OBJ->winpath(PATH)
 
 Converts a Cygwin-like path to a DOS/Windows-style path,
 e.g. /cygdrive/c/Windows becomes c:/Windows.
-
-
-=item 10i.  OBJ->wslhome
-
-Determine the host location of the WSL user home.
-Returns undef if the current process is not executing within a WSL context.
-
-
-=item 10j.  OBJ->wslroot
-
-Determine the host's directory location of the current WSL distribution root.
-
-
-=item 5e.  OBJ->home
-
-Read-only method advises a generally failsafe home directory for user.
-
-
-=item 9b.  OBJ->extant(PATH)
-
-Checks if the file specified by PATH exists. Subject to fatal processing.
 
 =back
 
@@ -88,6 +53,7 @@ use Data::Dumper;
 require File::HomeDir;
 #require Path::Class;
 require Path::Tiny;
+use Parse::Lex;
 
 #use Log::Log4perl qw(:levels);	# debugging
 
@@ -119,22 +85,30 @@ our $VERSION = '0.001';
 
 
 # --- package locals ---
-my $_n_objects = 0;
+#my $_n_objects = 0;
 
 my %_attribute = (	# _attributes are restricted; no direct get/set
 	_home => undef,		# a reliable version of user's home directory
+	_lexer => undef,
 	behaviour => undef,	# platform-dependent default, one of: w, u.
 	converted => undef,	# a normalised, cleansed and converted path
 	deu => STR_DELIM_U,
 	dew => STR_DELIM_W,
 	normal => undef,	# the normalised path
-	parts => undef,		# the constituent components of the path
 	raw => undef,		# the raw path passed into a parse function
 	res => RE_SHELLIFY,
 	reu => RE_DELIM_U,
 	rew => RE_DELIM_W,
 	root => undef,		# placeholder for root component
 	shellify => 0,		# converts \ to \\ for DOS-like shell exits
+	abs => undef,
+	drive => undef,
+	folders => [],
+	homed => undef,
+	letter => undef,
+	server => undef,
+	type => undef,
+	unc => undef,
 	volume => undef,	# placeholder for volume component
 );
 
@@ -161,12 +135,10 @@ sub AUTOLOAD {
 
 
 sub DESTROY {
-	local($., $@, $!, $^E, $?);
+#	local($., $@, $!, $^E, $?);
 	my $self = shift;
 
-	#printf "DEBUG destroy object id [%s]\n", $self->{'_id'});
-
-	-- ${ $self->{_n_objects} };
+#	$self->SUPER::DESTROY;
 }
 
 
@@ -179,8 +151,6 @@ sub new {
 
 	bless ($self, $class);
 
-	map { push @{$self->{'_inherent'}}, $_ if ($attr{"_have"}->{$_}) } keys %{ $attr{"_have"} };
-
 	while (my ($attr, $dfl) = each %attr) { 
 
 		unless (exists $self->{$attr} || $attr eq '_have') {
@@ -188,7 +158,8 @@ sub new {
 			$self->{'_have'}->{$attr} = $attr{'_have'}->{$attr};
 		}
 	}
-
+#	$self->{'_id'} = ++${ $self->{'_n_objects'} };
+#	$self->{'_id'} = ++$_n_objects;
 	$self->behaviour(($self->on_windows) ? "w" : "u");
 	$self->home;
 
@@ -201,16 +172,49 @@ sub new {
 
 		$self->$method($value);
 	}
-	# ___ additional class initialisation here ___
-
 	return $self;
 }
 
+=item OBJ->default(ATTRIBUTE, VALUE)
+
+Default the attribute to the value.  Defaulting only sets the value if it
+hasn't already been set.
+
+=cut
+
+sub default {
+	my $self = shift;
+	my $prop = shift;
+	my $value = shift;
+	confess "SYNTAX: default(EXPR, EXPR)" unless (
+		defined($prop) && defined($value));
+
+	$self->cough("attribute [$prop] does not exist")
+		unless (exists $self->{$prop});
+
+	return $self->{$prop}
+		unless (defined $value);
+
+	return $self->{$prop}
+		if (defined $self->{$prop});
+
+	$self->log->debug("prop [$prop] value [$value]");
+
+	$self->{$prop} = $value;
+
+	return $value;
+}
+
+=item OBJ->extant(PATH)
+
+Checks if the file specified by PATH exists. Subject to fatal processing.
+
+=cut
 
 sub extant {
 	my $self = shift;
 	my $pn = shift;
-	confess "SYNTAX: extant(EXPR)" unless defined ($pn);
+	confess "SYNTAX: extant(EXPR)" unless defined($pn);
 
 	return 1
 		if (-e $pn);
@@ -220,8 +224,304 @@ sub extant {
 	return 0;	# reverse polarity
 }
 
+=item OBJ->home
 
-sub slash { # based on expected behaviour optionally convert / to \\
+Read-only method advises a generally failsafe home directory for user.
+
+=cut
+
+sub home {
+	my $self = shift;
+
+	my $dn; if (@_) {
+
+		$dn = shift;
+
+		$self->{'_home'} = $dn;
+	}
+	if (defined $self->{'_home'}) {
+
+		$dn = $self->{'_home'};
+	} else {
+		my $env = ($self->on_windows) ? $ENV{'USERPROFILE'} : $ENV{'HOME'};
+		$dn = ($env eq '') ? File::HomeDir->my_home : $env;
+
+		$self->{'_home'} = $dn;
+	}
+	return $dn;
+}
+
+=item OBJ->joiner(EXPR, ...)
+
+Join components together into a normalised path.
+
+=cut
+
+sub joiner {
+	my $self = shift;
+	confess "SYNTAX: joiner(EXPR, ...)" unless (@_);
+
+	my $reu = $self->reu;
+
+	# not sure if the normalisation/split per parameter is necessary
+	#   as the splitter function does a normalisation anyway
+	# should be basing this off an already parsed path?? maybe
+	# should be aware of the parts of the path through the parse() routine
+	# ... see the splitter function
+
+	my $pn = join($self->deu, @_);
+
+	my @pn = $self->splitter($pn);	# this should force a parse
+
+	$self->log->debug(sprintf "pn [%s]", Dumper(\@pn));
+
+	$pn = join($self->deu, @pn);
+
+	$self->log->debug("pn [$pn]");
+
+	return $pn;
+}
+
+=item OBJ->lexer
+
+Create and return a lexer object with a path parsing text.  Only one parser
+is maintained for the object, and is re-used on subsequent calls (which will
+also handle a reset of the parser).
+
+=cut
+
+sub lexer {
+	my $self = shift;
+	my $lexer; if (defined $self->{'_lexer'}) {
+
+		$lexer = $self->{'_lexer'};
+
+		$lexer->reset;
+		$lexer->end('unc');
+
+		return $lexer;
+	}
+	my @token = (
+#	qw(unc:NETPATH 	[\\\/]), sub {  
+	"unc:NETPATH", '[\\\/]', sub {  
+
+		$self->unc(1);
+
+		$_[1];
+  	},
+	qw(unc:NETDRIVE  \w+\$), sub {
+
+		$lexer->end('unc');
+
+		$self->drive($_[1]);
+		$self->letter($self->trim($_[1], '\$'));
+		$self->type("wsl")
+			 if ($_[1] =~ /wsl/i);
+		$_[1];
+  	},
+	qw(unc:SERVER  \w+), sub {
+
+		# if you've already defined the server
+
+		if ($self->unc && !defined($self->server)) {
+
+			$self->server($_[1]);
+		} else {
+			push @{ $self->folders }, $_[1];
+
+			$lexer->end('unc');
+		}
+		$_[1];
+  	},
+	qw(PATHSEP	[\\\/]), sub {
+
+		my $decr = (defined $self->drive) ? length($self->drive) : 0;
+
+		$self->log->debug(sprintf "decr [$decr] offset [%s]", $lexer->offset);
+		my $abs; if ($lexer->offset - $decr == 1) {
+
+			$abs = 1;
+
+			$lexer->start('unc');
+
+		} else {
+			$abs = 0;
+		}
+		$self->log->debug("abs [$abs]");
+
+		$self->default('abs', $abs);
+		#$self->abs($abs);
+
+		if ($_[1] =~ /\\/) {
+
+			$self->default('type', "win");
+		} else {
+			$self->default('type', "lux");
+		}
+
+		$_[1];
+	},
+	qw(LOCALDRIVE	\w+:), sub {
+
+		$self->drive($_[1]);
+
+		$self->letter($self->trim($_[1], ':'));
+
+		$_[1];
+	},
+	qw(HOME  ~), sub { # tilde is a symbolic reference to an absolute path
+
+		$self->default('abs', 1);
+		$self->default('type', "lux");
+
+		$self->homed(1);
+	},
+	qw(FOLDER  [\.\w]+), sub {
+
+		$self->homed(1) if ($_[1] =~ /^home$/i);
+
+		my $raf = $self->folders;
+
+		push @$raf, $_[1];
+
+		$self->log->debug(sprintf "raf [%s]", Dumper($raf));
+
+		if (@$raf > 1) {	# check for cygdrive / mnt
+
+			my $letter = $raf->[1];
+			my $drive = "${letter}:";
+
+			if ($raf->[0] =~ /cygdrive/i) {
+
+				$self->type('cyg');
+
+				$self->letter($letter);
+				$self->drive($drive);
+
+			} elsif ($raf->[0] =~ /mnt/i) {
+
+				if ($self->on_wsl) {
+					$self->default('type', "wsl");
+#				} else {
+#					$self->default('type', "lux");
+				}
+
+				$self->letter($letter);
+				$self->drive($drive);
+			}
+		}
+		$lexer->end('unc');
+
+		$_[1];
+	},
+#	qw(NEWLINE  \n),
+	qw(ERROR  .*), sub {
+
+		$self->cough(sprintf("parse path token failed [%s]\n", $_[1]));
+	},
+	);
+	$self->log->trace(sprintf "token [%s]", Dumper(\@token));
+
+	Parse::Lex->inclusive('unc');
+	Parse::Lex->trace(1) if ($ENV{'DEBUG'});
+
+	$lexer = Parse::Lex->new(@token);
+
+	$self->{'_lexer'} = $lexer;
+
+	return $lexer;
+}
+ 
+=item OBJ->normalise(EXPR, ...)
+
+Normalise a path to consistent unix-format
+
+=cut
+
+sub normalise {
+	my $self = shift;
+	my $pni = shift;
+	confess "SYNTAX: normalise(PATH, ...)" unless (defined $pni);
+
+	$self->raw($pni);
+
+	my $lei = length($pni);
+	my $pno = $pni;
+	my $deu = $self->deu;
+	my $rew = $self->rew;
+
+	$pno =~ s/$rew/$deu/g;
+
+	my $lno = length($pno);
+
+	$self->log->debug("lei [$lei] pni [$pni] lno [$lno] pno [$pno]");
+
+	$self->cough("normalised length [$lei] differs from [$lno]")
+		if ($lno != $lei);
+
+	$self->normal($pno);
+
+	return $pno;
+}
+ 
+=item OBJ->parse(EXPR)
+
+Parse a path into its various components and update and metadata where possible.
+
+=cut
+
+sub parse {
+	my $self = shift;
+	my $pn = shift;
+	confess "SYNTAX: parse(PATH)" unless (defined $pn);
+
+	$self->log->info("parsing [$pn]");
+
+	$self->abs(undef);
+	$self->drive(undef);
+	$self->homed(undef);
+	$self->letter(undef);
+	$self->folders([]);
+	$self->server(undef);
+	$self->type(undef);
+	$self->unc(undef);
+	$self->volume(undef);
+
+	my $lex = $self->lexer;
+
+#	$lex->reset;
+
+	$lex->from($pn);
+
+	my $count; for ($count = 1; $count; $count++) {
+
+#	TOKEN:while (1) {
+#	while (1) {
+		my $token = $lex->next;
+
+#		last TOKEN if ($lex->eoi);
+		last if ($lex->eoi);
+
+#		$count++;
+	}
+#	$lex->restart;
+
+	# failsafe value following undef above
+	$self->default('abs', 0);
+	$self->default('homed', 0);
+	$self->default('type', "lux");
+	$self->default('unc', 0);
+
+	return $count;
+}
+
+=item OBJ->slash([EXPR])
+
+Based on expected behaviour optionally convert / to \\
+
+=cut
+
+sub slash {
 	my $self = shift;
 	if (@_) { $self->converted(shift) };
 
@@ -248,172 +548,13 @@ sub slash { # based on expected behaviour optionally convert / to \\
 	return $pno;
 }
 
+=item OBJ->tld
 
-sub home {	# provide a value for a home directory
-	my $self = shift;
+Return the top-level directory component for a hybrid OS, e.g. cygwin or mnt.
 
-	my $dn; if (@_) {
+=cut
 
-		$dn = shift;
-
-		$self->{'_home'} = $dn;
-	}
-	if (defined $self->{'_home'}) {
-
-		$dn = $self->{'_home'};
-	} else {
-		my $env = ($self->on_windows) ? $ENV{'USERPROFILE'} : $ENV{'HOME'};
-		$dn = ($env eq '') ? File::HomeDir->my_home : $env;
-
-		$self->{'_home'} = $dn;
-	}
-	return $dn;
-}
-
-
-sub joiner {	# join components together into a normalised path
-	my $self = shift;
-	confess "SYNTAX: joiner(EXPR, ...)" unless (@_);
-
-	my $reu = $self->reu;
-
-	# not sure if the normalisation/split per parameter is necessary
-	#   as the splitter function does a normalisation anyway
-	# should be basing this off an already parsed path?? maybe
-	# should be aware of the parts of the path through the parse() routine
-	# ... see the splitter function
-
-	my $pn = join($self->deu, @_);
-
-	my @pn = $self->splitter($pn);	# this should force a parse
-
-	$self->log->debug(sprintf "pn [%s]", Dumper(\@pn));
-
-	$pn = join($self->deu, @pn);
-
-	$self->log->debug("pn [$pn]");
-
-	return $pn;
-}
-
-
-sub parse {
-	my $self = shift;
-	my $pn = shift;
-	confess "SYNTAX: parse(PATH)" unless defined ($pn);
-
-	return $pn unless ($self->like_windows);
-
-	return $pn if ($self->on_windows);
-
-	my @pn = $self->splitdir($pn);
-
-	return $pn unless (@pn);
-
-	my $drive = lc(shift @pn);
-
-	$self->log->warn("unusual drive letter [$drive]")
-		unless ($drive =~ /[a-z]:/i);
-
-	$drive =~ s/://g;
-
-	$pn = File::Spec->catdir("", $self->tld, $drive, @pn);
-
-	$self->log->debug("pn [$pn]");
-
-	return $pn;
-}
-
-
-sub normalise {	# normalise a path to consistent unix-format
-	my $self = shift;
-	my $pni = shift;
-	confess "SYNTAX: normalise(PATH, ...)" unless (defined $pni);
-
-	$self->raw($pni);
-
-	my $lei = length($pni);
-	my $pno = $pni;
-	my $deu = $self->deu;
-	my $rew = $self->rew;
-
-	$pno =~ s/$rew/$deu/g;
-
-	my $lno = length($pno);
-
-	$self->log->debug("lei [$lei] pni [$pni] lno [$lno] pno [$pno]");
-
-	$self->cough("normalised length [$lei] differs from [$lno]")
-		if ($lno != $lei);
-
-	$self->normal($pno);
-
-	return $pno;
-}
-
-
-sub splitter {	# normalise a path to unix delimeters and split into components
-	my $self = shift;
-	my $pni = shift;
-	confess "SYNTAX: splitter(PATH)" unless defined($pni);
-
-	# cannot use File::Spec->splitdir as cygwin paths are unix-like
-	# and we may want to explicitly convert windows-like paths
-	# note that Path::Tiny thinks c:\temp is relative to the CWD and is a file!
-	my $reu = $self->reu;
-
-	my @pn = split(/$reu/, $self->normalise($pni));
-
-	$self->log->debug(sprintf "pn [%s]", Dumper(\@pn));
-
-	$self->parts([ @pn ]);
-
-	NEED to do the parse() routine here, on the "parts" using tld, volume, etc.
-
-	return @pn;
-}
-
-
-sub splitdir {	# split a path into tokens and return array
-	my $self = shift;
-	my $pni = shift;
-	confess "SYNTAX: splitdir(PATH)" unless defined($pni);
-
-	my @dn = $self->splitter($pni);
-
-	if ($dn[0] =~ /:/) {	# a DOS drive letter and thus root directory
-
-		my $prepend = $self->tld;
-
-		if (defined $prepend) {
-
-			$dn[0] = lc $dn[0];
-			$dn[0] =~ s/://;
-
-			unshift @dn, "", $prepend;
-		}
-	} elsif ($dn[0] =~ /\$/) {	# DOS special drive, possibly share
-
-		unshift @dn, "";
-	}
-
-	my $dn = join('/', @dn);
-
-	# Path::Tiny which gets rid of rubbish duplicates
-	my $pn = Path::Tiny::path($dn);	# a Path::Tiny object now only forward slashes
-
-	$self->log->debug(sprintf "canonpath [%s]", $pn->canonpath);
-	$self->log->debug(sprintf "absolute [%s]", $pn->absolute);
-
-#	@dn = split(/$re/, $pn->canonpath);
-
-	$self->log->debug(sprintf "dn [%s]", Dumper(\@dn));
-
-	return @dn;
-}
-
-
-sub tld {	# determine the mountpoint for hybrid OS
+sub tld {
 	my $self = shift;
 
 	my $mount; if ($self->on_cygwin) {
@@ -439,55 +580,12 @@ sub tld {	# determine the mountpoint for hybrid OS
 	return $mount;
 }
 
+=item OBJ->wslhome
 
-sub winpath {
-	my $self = shift;
-	my $pn = shift;
-	my $convert = shift;
-	confess "SYNTAX: winpath(PATH, [EXPR])" unless defined ($pn);
+Determine the host location of the WSL user home.
+Returns undef if the current process is not executing within a WSL context.
 
-	return $pn unless ($self->like_windows);
-
-	return $pn if ($self->on_windows);
-
-	my @pn = $self->splitdir($pn);
-
-	return $pn unless (@pn);
-
-	my $mount = $self->tld;
-
-	if ($self->on_cygwin || $self->on_wsl) {
-
-		# example input paths:
-		#  /cygdrive/c/xxx
-		#  //hostname/xxx
-		#  xxx			will not get this far!
-		#  /root/xxx
-
-		if ($pn =~ /$mount/) {	# this looks like a drive
-
-			shift @pn 	# remove the root prefix
-				if ($self->is_blank($pn[0]));
-
-			my $drive = ""; if ($pn[0] =~ /^$mount$/i) {
-
-				shift @pn;	# remove the cygdrive bit
-
-				$drive = uc(shift @pn) . ':';
-			}
-
-			$self->log->warn("unusual drive letter [$drive]")
-				unless ($drive =~ /[a-z]:/i);
-
-			$pn = $self->catdir($drive, @pn);
-
-		} else {
-			$pn = $self->catdir(@pn);
-		}
-	}
-	return $self->slash($pn);
-}
-
+=cut
 
 sub wslhome {	# determine the host location of the WSL user home
 	my $self = shift;
@@ -505,8 +603,13 @@ sub wslhome {	# determine the host location of the WSL user home
 	return $self->slash($home);
 }
 
+=item OBJ->_wslroot
 
-sub _wslroot {	# determine the host location of the WSL distro root
+INTERNAL ROUTINE ONLY.  Determine the host location of the WSL distro root.
+
+=cut
+
+sub _wslroot {
 #	note that this only has relevance on a Windows-like system, but
 #	not really within the WSL itself, so the latter is contrived.
 #	this routine generates a likely WSL root, regardless of its existence.
@@ -540,6 +643,11 @@ sub _wslroot {	# determine the host location of the WSL distro root
 	return $wslr;
 }
 
+=item OBJ->wslroot
+
+Determine the host's directory location of the current WSL distribution root.
+
+=cut
 
 sub wslroot {	# determine the host location of the WSL distro root
 	my $self = shift;

@@ -42,6 +42,29 @@ my $o1 = Batch::Exec::Path->new;
 isa_ok($o1, $harness->this,	"class check $cycle"); $cycle++;
 
 
+# ---- joiner basic ----
+is($o1->joiner(""), "/",			$harness->cond("join root");
+is($o1->joiner("", ""), "//",			$harness->cond("join 2root");
+
+
+# ---- joiner full ----
+for my $pn ($harness->all_paths) {
+
+	$log->info("pn [$pn]");
+
+	my @split = $o1->splitter($pn);
+
+	if ($pn eq '/') {
+		ok(scalar(@split) == 0,		$harness->cond("spliter zero"));
+	} else {
+		ok(scalar(@split) > 0,		$harness->cond("spliter non-zero"));
+		my $after = $o1->joiner(@split);
+
+		$log->info("after [$after]");
+	}
+}
+
+
 # -------- normalise --------
 for my $pn ($harness->all_paths) {
 	my $o2 = Batch::Exec::Path->new;

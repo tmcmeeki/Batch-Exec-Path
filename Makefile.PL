@@ -16,7 +16,7 @@ WriteMakefile(
 	'File::HomeDir' => '0',
 	'Log::Log4perl' => '0',
 	'Logfer' => '0',
-	'Path::Class' => '0',
+	'Parse::Lex' => '0',
 	'Path::Tiny' => '0',
 }, # e.g., Module::Name => 1.1
     ABSTRACT_FROM     => 'lib/Batch/Exec/Path.pm', # retrieve abstract from module

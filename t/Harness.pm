@@ -356,6 +356,9 @@ __END__
 
 #valid=abs=volume=root=levels=path
 1=1=none=/=0=/
+1=1=none=/=0=~
+1=1=none=/=0=.
+1=1=none=/=0=..
 1=1=none=/=1=/tmp
 1=1=none=/=2=/root/xxx
 1=1=none=/=1=.

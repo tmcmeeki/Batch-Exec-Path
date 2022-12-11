@@ -38,12 +38,14 @@ isa_ok($obp, "Batch::Exec",		"class check $cycle"); $cycle++;
 # -------- attributes --------
 my @cttr = $obc->Attributes;
 my @pttr = $obp->Attributes;
-is(scalar(@cttr) - scalar(@pttr), 13,	"class attributes");
+is(scalar(@cttr) - scalar(@pttr), 20,	"class attributes");
 is(shift @cttr, 'Batch::Exec::Path',	"class okay");
 
 for my $attr (@cttr) {
 
 	my $dfl = $obc->$attr;
+
+	next if (ref($dfl) ne "");	# skip attributes which aren't scalars
 
 	my ($set, $type); if (defined $dfl && $dfl =~ /^[\-\d\.]+$/) {
 		$set = -1.1;
