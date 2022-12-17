@@ -1,6 +1,6 @@
 #!/usr/bin/perl
 #
-# 03other::Exec::Path-2.t - test harness for the Batch::Exec::Path.pm module: pathnames
+# 04_other.t - test harness for the Batch::Exec::Path.pm module: miscellaneous
 #
 use strict;
 
@@ -84,7 +84,6 @@ exit -1;
 
 
 # ---- path basic ----
-
 my $re_cyg = qr/cyg.+users.+abc/i;
 my $re_win = qr/c.+users.+abc/i;
 my $re_wsl = qr/mnt.+users.+abc/i;
@@ -179,11 +178,65 @@ isnt($o1->winpath($dn5), $o2->winpath($dn5), 	"winpath dual dn5");
 # ('~/tmp');
 # "./tmp";
 
+# -------- wslroot --------
+if ($o1->on_wsl) {
+
+	$log->info("platform: WSL");
+
+	is($o1->wslroot, undef,		"wslroot undefined");
+
+} elsif ($o1->on_cygwin) {
+
+	$log->info("platform: CYGWIN");
+
+	if ($o1->wsl_active) {
+		isnt($o1->wslroot, undef,	"wslroot defined");
+	} else {
+		is($o1->wslroot, undef,	"wslroot defined");
+	}
+
+} elsif ($o1->on_windows) {
+
+	$log->info("platform: Windows");
+
+	if ($o1->wsl_active) {
+		isnt($o1->wslroot, undef,	"wslroot defined");
+	} else {
+		is($o1->wslroot, undef,	"wslroot defined");
+	}
+
+} else {
+
+	$log->info("platform: OTHER");
+
+	is($o1->wslroot, undef,		"wslroot undefined");
+}
+
+
+# -------- wslhome --------
+my $o3 = Batch::Exec::Path->new;
+isa_ok($o3, $harness->this,	"class check $cycle"); $cycle++;
+
+if ($o3->like_windows) {
+	like($o1->wslroot, qr/wsl/,	"wslroot IS on_wsl raw");
+	like($o3->wslroot, qr/wsl/,	"wslroot IS on_wsl convert");
+
+	like($o1->wslhome, qr/wsl.*home/,	"wslhome IS on_wsl raw");
+	like($o3->wslhome, qr/wsl.*home/,	"wslhome IS on_wsl convert");
+} else {
+	is($o1->wslroot, undef,	"wslroot ISNT on_wsl raw");
+	is($o3->wslroot, undef,	"wslroot ISNT on_wsl convert");
+
+	is($o1->wslhome, undef,	"wslhome ISNT on_wsl raw");
+	is($o3->wslhome, undef,	"wslhome ISNT on_wsl convert");
+}
+
+
 __END__
 
 =head1 DESCRIPTION
 
-03other.t - test harness for the Batch::Exec::Path.pm module: pathnames
+04_other.t - test harness for the Batch::Exec::Path.pm module: miscellaneous
 
 =head1 VERSION
 

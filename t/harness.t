@@ -88,7 +88,7 @@ while (@keys) {
 
 # --- filtering ---
 my @paths = $harn->filter('root', "/");
-is(scalar(@paths), 13,				"filter root");
+is(scalar(@paths), 16,				"filter root");
 
 my @paths = $harn->filter("volume", "C");
 is(scalar(@paths), 3,				$harn->cond("volume"));
@@ -99,11 +99,11 @@ is(scalar($harn->filter("volume", "D")), 1,	$harn->cond("volume"));
 @paths = $harn->invalid;
 is(scalar(@paths), 4,				$harn->cond("invalid"));
 @paths = $harn->valid;
-is(scalar(@paths), 29,				$harn->cond("valid"));
+is(scalar(@paths), 32,				$harn->cond("valid"));
 
 
 # --- all_paths ---
-is(scalar($harn->all_paths), 33,		$harn->cond("all_paths"));
+is(scalar($harn->all_paths), 36,		$harn->cond("all_paths"));
 
 
 # --- fs2bs ---
@@ -112,9 +112,11 @@ is($harn->fs2bs("//"), "\\\\",			$harn->cond("fs2bs"));
 is($harn->fs2bs("a/b/c"), "a\\b\\c",		$harn->cond("fs2bs"));
 
 
-
 # --- fs2bs shell ---
 is($harn->fs2bs("/", 1), "\\\\",		$harn->cond("fs2bs slash"));
 is($harn->fs2bs("//", 1), "\\\\\\\\",		$harn->cond("fs2bs slash"));
 is($harn->fs2bs("a/b/c", 1), "a\\\\b\\\\c",	$harn->cond("fs2bs slash"));
 
+
+# --- cwul ---
+#$harn->cwul($harn, "valid", qw/ a b c d /), 1,	$harn->cond("cwul scalar");

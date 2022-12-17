@@ -113,6 +113,49 @@ sub poll {
 }
 
 
+sub cwul {	# four-way platform-related test
+	my $self = shift; 
+	my $obj = shift;
+#	$self->log->debug(sprintf "argc [%d] argv [%s]", scalar(@_), Dumper(\@_));
+	my $func = shift;
+	confess "SYNTAX: cwul(OBJ, FUNC, EXPR, EXPR, EXPR, EXPR)" if (@_ < 4);
+
+	my %check = (
+		'd:on_linux' => pop @_,
+		'b:on_wsl' => pop @_,
+		'c:on_windows' => pop @_,
+		'a:on_cygwin' => pop @_,
+	);
+	$self->log->debug(sprintf "check [%s]", Dumper(\%check));
+
+	no strict 'refs';
+
+#	my $tested = 0; while (my ($platform, $check) = each %check) {
+	my $tested = 0; for my $key (sort keys %check) {
+
+		my $check = $check{$key};
+		my @keys = split(/:/, $key);
+		my $platform = pop @keys;
+
+#		$self->log->logconfess(sprintf "FATAL this object cannot [$platform]") if (defined($obj->can($platform)));
+
+		if ($obj->$platform) {
+
+			$self->log->debug("testing [$platform] value [$check]");
+
+			if (ref($check) eq 'REGEXP') {
+				like($obj->$func(@_), $check, $self->cond($func));
+			} else {
+				is($obj->$func(@_), $check, $self->cond($func));
+			}
+
+			$tested = 1;
+		}
+		last if ($tested);
+	}
+}
+
+
 sub cycle {
 	my $self = shift; 
 
@@ -155,7 +198,6 @@ sub done {
 sub planned {
 	my $self = shift;
 	my $n_tests = shift;
-
 	confess "SYNTAX: plan(tests)" unless defined ($n_tests);
 
 	$self->_planned($n_tests);

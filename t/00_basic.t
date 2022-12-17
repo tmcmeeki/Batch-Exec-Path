@@ -116,9 +116,9 @@ $log->info(sprintf "HOME is [%s]", $o1->home);
 
 
 # -------- extant --------
-is(-d ".", $o1->extant("."),				"dot extant");
-is(-d $o1->dn_start, $o1->extant($o1->dn_start),	"dn_start extant");
-is(-d $o1->home, $o1->extant($o1->home),		"home extant");
+is(-d ".", $o1->extant(".", 'd'),			"dot extant");
+is(-d $o1->dn_start, $o1->extant($o1->dn_start, 'd'),	"dn_start extant");
+is(-d $o1->home, $o1->extant($o1->home, 'd'),		"home extant");
 
 
 # -------- tld --------
