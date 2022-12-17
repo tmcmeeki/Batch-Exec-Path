@@ -571,11 +571,10 @@ sub tld {
 	my $server = shift ; $self->server($server) if defined($server);
 	$self->log->logconfess($self->msg) unless defined($self->type);
 
-	my $tld;# = $self->deu;
 	my $hostpath = join($self->deu, $self->deu, $self->server)
 		if (defined $self->server);
 
-	if ($self->on_cygwin) {
+	my $tld; if ($self->on_cygwin) {
 
 		$tld = ($hostpath) ? $hostpath : $self->deu . DN_MOUNT_CYG;
 
@@ -585,17 +584,26 @@ sub tld {
 			$tld = $hostpath;
 		} else {
 			if ($self->type eq 'wsl') {
-				$tld = $self->deu . $self->_wslroot;
+				$tld = join($self->deu, $self->deu, $self->_wslroot);
 			} else {
 				$tld = $self->deu . DN_MOUNT_WSL;
+			}
+		}
+	} elsif ($self->on_windows) {
+
+		if (defined $hostpath) {
+			$tld = $hostpath;
+		} else {
+			if ($self->type eq 'wsl') {
+				$tld = join($self->deu, $self->deu, $self->_wslroot);
 			}
 		}
 	} else {
 		$tld = $hostpath if (defined $hostpath);
 	}
-	$tld = '/' unless defined($tld);
+	$tld = '' unless defined($tld);
 #		$self->cough("unable to determine platform [$^O]");
-	$self->log->debug("tld [$tld]");
+	$self->log->debug(sprintf "type [%s] tld [$tld]", $self->type);
 
 	return $tld;
 }
@@ -633,21 +641,21 @@ sub volume {
 		$self->log->debug(sprintf "letter [%s]", $self->letter);
 
 		if ($self->on_wsl && $self->type eq 'wsl') {
-			$self->log->debug("WSL PATH HERE XXXXXX");
-#			$volume = $self->_wslroot;
+
 			$volume = join($self->deu, $self->deu, $self->_wslroot);
+
 		} else {
-			$self->log->debug("NON-WSL PATH HERE ZZZZZZZZ");
 			if (defined $self->letter) {
 
-				if ($self->on_linux) {
-#				if ($self->letter eq $self->unknown) {
-					$volume = $self->tld;
-				} else {
+#				if ($self->on_cygwin || $self->on_wsl) {
+
 					$volume = join($self->deu, $self->tld, $self->letter);
-				}
+#				if ($self->letter eq $self->unknown) {
+#				} else {
+#					$volume = $self->tld . $self->letter;
+#				}
 			} else {
-				$volume = join($self->deu, $self->tld);
+				$volume = $self->tld;
 			}
 		}
 	}
@@ -691,12 +699,8 @@ sub _wslroot {
 #	this routine generates a likely WSL root, regardless of its existence.
 	my $self = shift;
 
-	unless ($self->like_windows) {
-
-		$self->log->logwarn("WSL does not exist on this platform");
-
-		return undef;
-	}
+	$self->log->logwarn("WSL does not exist on this platform")
+		unless ($self->like_windows);
 
 	my $dist = $self->wsl_dist;
 

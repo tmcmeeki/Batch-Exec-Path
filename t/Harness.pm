@@ -116,9 +116,8 @@ sub poll {
 sub cwul {	# four-way platform-related test
 	my $self = shift; 
 	my $obj = shift;
-#	$self->log->debug(sprintf "argc [%d] argv [%s]", scalar(@_), Dumper(\@_));
-	my $func = shift;
-	confess "SYNTAX: cwul(OBJ, FUNC, EXPR, EXPR, EXPR, EXPR)" if (@_ < 4);
+	my $meth = shift;
+	confess "SYNTAX: cwul(OBJ, METHOD, EXPR, EXPR, EXPR, EXPR)" if (@_ < 4);
 
 	my %check = (
 		'd:on_linux' => pop @_,
@@ -126,7 +125,7 @@ sub cwul {	# four-way platform-related test
 		'c:on_windows' => pop @_,
 		'a:on_cygwin' => pop @_,
 	);
-	$self->log->debug(sprintf "check [%s]", Dumper(\%check));
+	$self->log->trace(sprintf "check [%s]", Dumper(\%check));
 
 	no strict 'refs';
 
@@ -141,12 +140,14 @@ sub cwul {	# four-way platform-related test
 
 		if ($obj->$platform) {
 
-			$self->log->debug("testing [$platform] value [$check]");
+			my $ref = ref($check);
 
-			if (ref($check) eq 'REGEXP') {
-				like($obj->$func(@_), $check, $self->cond($func));
+			$self->log->debug(sprintf "method [$meth(%s)] [$platform] ref [$ref] check [$check]", join(', ', @_));
+
+			if ($ref eq 'Regexp') {
+				like($obj->$meth(@_), $check, $self->cond($meth));
 			} else {
-				is($obj->$func(@_), $check, $self->cond($func));
+				is($obj->$meth(@_), $check, $self->cond($meth));
 			}
 
 			$tested = 1;

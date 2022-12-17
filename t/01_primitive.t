@@ -20,7 +20,7 @@ use Harness;
 #BEGIN { use_ok('Batch::Exec::Path') };
 my $harn = Harness->new('Batch::Exec::Path');
 
-$harn->planned(246);
+$harn->planned(75);
 use_ok($harn->this);
 #require_ok($harn->this);
 
@@ -42,14 +42,13 @@ isa_ok($os0, $harn->this,		$harn->cond("class check"));
 my $os1 = Batch::Exec::Path->new('shellify' => 1);
 isa_ok($os1, $harn->this,		$harn->cond("class check"));
 
+my $os2 = Batch::Exec::Path->new;
+isa_ok($os2, $harn->this,		$harn->cond("class check"));
+
 
 # -------- drive_letter --------
 is($os0->drive_letter("c"), "c",	$harn->cond("drive_letter simple"));
-if ($os0->on_windows) {
-	is($os0->drive, "c:",		$harn->cond("drive simple"));
-} else {
-	is($os0->drive, "c",		$harn->cond("drive simple"));
-}
+is($os0->drive, "c:",			$harn->cond("drive simple"));
 is($os0->letter, "c",			$harn->cond("letter simple"));
 
 is($os0->drive_letter("c:"), "c",	$harn->cond("drive_letter colon"));
@@ -105,15 +104,20 @@ my %uxp = (	# first = path (unmodified), second = slash result
 					'ws' => q{\ fu\ man\ chu\ },
 	},
 );
+
 #while (my ($cond, $rh) = each %uxp) {
 for my $cond (sort keys %uxp) {
 	my $rh = $uxp{$cond};
 	my $base = $rh->{'base'};
 	my $shell = $rh->{'us'};
 
-	is($os0->slash($base), $base,	$harn->cond("slash shellify OFF unix cond=$cond"));
+	SKIP: {
+		skip "slash yet to be tested", 2;
 
-	is($os1->slash($base), $shell,	$harn->cond("slash shellify ON unix cond=$cond"));
+		is($os0->slash($base), $base,	$harn->cond("slash shellify OFF unix cond=$cond"));
+
+		is($os1->slash($base), $shell,	$harn->cond("slash shellify ON unix cond=$cond"));
+	}
 }
 
 
@@ -124,6 +128,7 @@ is($os0->behaviour, 'w',		$harn->cond("behaviour wind"));
 is($os0->behaviour, $os1->behaviour,	$harn->cond("behaviour match"));
 
 for my $cond (sort keys %uxp) {
+
 	my $rh = $uxp{$cond};
 	my $base = $rh->{'base'};
 	my $wd = $rh->{'wd'};
@@ -137,42 +142,48 @@ for my $cond (sort keys %uxp) {
 
 	is(length($hd), length($base),	$harn->cond("fs2bs length"));
 
-#	is($os0->slash($base), $wd,	$harn->cond("slash shellify OFF wd cond=$cond"));
-	is($os0->slash($base), $hd,	$harn->cond("slash shellify OFF hd cond=$cond"));
+	SKIP: {
+		skip "slash yet to be tested", 2;
 
-#	is($os1->slash($base), $ws,	$harn->cond("slash shellify ON ws cond=$cond"));
-#	$log->debug("wd [$wd] ws [$ws]") if ($cond eq 'c');
-	is($os1->slash($base), $hs,	$harn->cond("slash shellify ON hs cond=$cond"));
+		is($os0->slash($base), $hd,	$harn->cond("slash shellify OFF hd cond=$cond"));
+
+		is($os1->slash($base), $hs,	$harn->cond("slash shellify ON hs cond=$cond"));
+	}
 }
+
+
+# -------- tld --------
+is($os2->type("win"), "win",		$harn->cond("type override"));
+$harn->cwul($os2, qw[  tld  /cygdrive  ], "", "/mnt",  "");
+
+is($os2->type("wsl"), "wsl",		$harn->cond("type override"));
+$harn->cwul($os2, qw[  tld  /cygdrive  //wsl$/Ubuntu  //wsl$/Ubuntu], "");
 
 
 # -------- _wslroot --------
-$harn->cwul($os1, "_wslroot", qr/wsl/, qr/wsl/, undef, undef);
+my $re_wsl = qr[wsl\$\/\w+];
+like($os2->_wslroot, qr/.+/,		$harn->cond("_wslroot has value"));
+$harn->cwul($os2, "_wslroot", $re_wsl, $re_wsl, $re_wsl, $re_wsl);
 
-if ($os1->on_wsl) {
 
-	$log->info("platform: WSL");
+# -------- volume --------
+is($os2->type("win"), "win",		$harn->cond("type override"));
+is($os2->unc(0), 0,			$harn->cond("unc override"));
+$harn->cwul($os2, qw[ volume  x  /cygdrive/x  x:  /mnt/x  /x ]);
 
-	like($os1->_wslroot, qr/wsl/,	"_wslroot defined");
 
-} elsif ($os1->on_cygwin) {
+is($os2->server("host"), "host",	$harn->cond("server override"));
+$harn->cwul($os2, qw[ volume  x  //host/x  //host/x  //host/x  //host/x ]);
 
-	$log->info("platform: CYGWIN");
 
-	isnt($os1->_wslroot, undef,	"_wslroot defined");
+is($os2->type("wsl"), "wsl",		$harn->cond("type override"));
+is($os2->server(undef), undef,		$harn->cond("server override"));
+$harn->cwul($os2, qw[ volume  x  /cygdrive/x  //wsl$/Ubuntu  //wsl$/Ubuntu  /x ]);
 
-} elsif ($os1->on_windows) {
 
-	$log->info("platform: Windows");
+is($os2->type("lux"), "lux",		$harn->cond("type override"));
+$harn->cwul($os2, qw[ volume  ee  /cygdrive/ee  ee:  /mnt/ee  /ee ]);
 
-	isnt($os1->_wslroot, undef,	"_wslroot defined");
-
-} else {
-
-	$log->info("platform: OTHER");
-
-	is($os1->_wslroot, undef,	"_wslroot undefined");
-}
 
 __END__
 

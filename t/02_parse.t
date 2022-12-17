@@ -37,27 +37,6 @@ my $cycle = 1;
 my $o1 = Batch::Exec::Path->new;
 isa_ok($o1, $harn->this,		$harn->cond("class check"));
 
-my $o2 = Batch::Exec::Path->new;
-isa_ok($o2, $harn->this,		$harn->cond("class check"));
-
-
-# -------- volume --------
-is($o2->type("win"), "win",		$harn->cond("type overrride"));
-is($o2->unc(0), 0,			$harn->cond("unc overrride"));
-$harn->cwul($o2, qw[ volume  x  /cygdrive/x  x:  /mnt/x  / ]);
-
-is($o2->server("host"), "host",		$harn->cond("server overrride"));
-$harn->cwul($o2, qw[ volume  x  //host/x  //host/x  //host/x  //host/x ]);
-
-is($o2->type("wsl"), "wsl",		$harn->cond("type overrride"));
-is($o2->server(undef), undef,		$harn->cond("server overrride"));
-$harn->cwul($o2, qw[ volume  x  /cygdrive/x  //wsl$/Ubuntu  //wsl$/Ubuntu  /x ]);
-exit -1;
-
-is($o2->type("lux"), "lux",		$harn->cond("type overrride"));
-$harn->cwul($o2, qw[ volume  /  /cygdrive/x  x:  /mnt/x  /x ]);
-exit -1;
-
 
 # -------- parse (specific) --------
 is($o1->parse("./tmp"), 4,		$harn->cond("parse tmp"));

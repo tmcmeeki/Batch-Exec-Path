@@ -8,7 +8,7 @@ use strict;
 use Data::Dumper;
 use Log::Log4perl qw/ :easy /;
 #use Logfer qw/ :all /;
-use Test::More tests => 123;
+use Test::More tests => 114;
 
 BEGIN { use_ok('Batch::Exec::Path') };
 
@@ -38,7 +38,7 @@ isa_ok($obp, "Batch::Exec",		"class check $cycle"); $cycle++;
 # -------- attributes --------
 my @cttr = $obc->Attributes;
 my @pttr = $obp->Attributes;
-is(scalar(@cttr) - scalar(@pttr), 20,	"class attributes");
+is(scalar(@cttr) - scalar(@pttr), 19,	"class attributes");
 is(shift @cttr, 'Batch::Exec::Path',	"class okay");
 
 for my $attr (@cttr) {
@@ -119,27 +119,6 @@ $log->info(sprintf "HOME is [%s]", $o1->home);
 is(-d ".", $o1->extant(".", 'd'),			"dot extant");
 is(-d $o1->dn_start, $o1->extant($o1->dn_start, 'd'),	"dn_start extant");
 is(-d $o1->home, $o1->extant($o1->home, 'd'),		"home extant");
-
-
-# -------- tld --------
-if ($o1->on_wsl) {
-
-	$log->info("platform: WSL");
-
-	is($o1->tld, "/mnt",		"default tld");
-
-} elsif ($o1->on_cygwin) {
-
-	$log->info("platform: CYGWIN");
-
-	is($o1->tld, "/cygdrive",	"default tld");
-
-} else {
-
-	$log->info("platform: OTHER");
-
-	is($o1->tld, "/",		"default tld");
-}
 
 
 __END__
