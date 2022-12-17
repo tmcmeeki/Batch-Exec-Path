@@ -4,7 +4,7 @@ package Harness;
 # directory names
 #
 # Harness.pm - test harness for module Batch::Exec::Path
-# Version: ___EUMM_VERSION___
+# Version: _IDE_REVISION_
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published

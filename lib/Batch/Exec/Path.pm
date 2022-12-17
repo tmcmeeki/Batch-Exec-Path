@@ -17,6 +17,8 @@ Copyright (C) 2021  B<Tom McMeekin> tmcmeeki@cpan.org
 
 ___detailed_class_description_here___
 
+=head2 ATTRIBUTES
+
 =over 4
 
 =item OBJ->behaviour(EXPR)
@@ -177,6 +179,10 @@ sub new {
 	}
 	return $self;
 }
+
+=head2 METHODS
+
+=over 4
 
 =item OBJ->default(ATTRIBUTE, VALUE)
 
@@ -733,9 +739,11 @@ sub wslroot {	# determine the host location of the WSL distro root
 
 __END__
 
+=back
+
 =head1 VERSION
 
-___EUMM_VERSION___
+_IDE_REVISION_
 
 =head1 LICENSE
 
