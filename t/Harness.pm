@@ -45,6 +45,8 @@ my %attribute = (
 	osp => ord(" "),
 	osq => ord("'"),
 	this => undef,
+# dummy attribute for cwul()
+	on_cygwin => 1,
 );
 
 
@@ -330,6 +332,20 @@ sub valid {
 }
 
 
+sub valid_paths {
+	my $self = shift;
+
+	my @valid; for ($self->valid) {
+
+#		$self->log->debug(sprintf "got [%s]", Dumper(\$_));
+
+		push @valid, $self->select($_, 'path');
+	}
+
+	return @valid;
+}
+
+
 sub all_paths {
 	my $self = shift;
 
@@ -348,13 +364,17 @@ sub fs2bs {	# byte-level conversion of forward-slash to back-slash
 	confess "SYNTAX: fs2bs(EXPR)" unless defined($str);
 	my $shell = shift; $shell = 0 unless defined($shell);
 	# if true, shell will insert a backslash
+	my $f_reverse = shift; $f_reverse = 0 unless defined($f_reverse);
+	# if true, shell will swap FS for BS (i.e. the reverse conversion)
 
-	my $obs = $self->obs;
-	my $ofs = $self->ofs;
+	return $str unless (ref($str) eq "");
+
+	my $osa = ($f_reverse) ? $self->obs : $self->ofs;
+	my $osb = ($f_reverse) ? $self->ofs : $self->obs;
 	my $osp = $self->osp;
 	my $osq = $self->osq;
 
-	$self->log->trace("obs [$obs] ofs [$ofs]");
+	$self->log->trace("osa [$osa] osb [$osb]");
 
 	my @str = unpack "C*", $str;
 
@@ -362,24 +382,17 @@ sub fs2bs {	# byte-level conversion of forward-slash to back-slash
 
 	my @new; for my $c (@str) {
 
-		if ( $c == $ofs || $c == $osp || $c == $osq ) {
-			push @new, $obs		# insert shellified backslash
+		if ( $c == $osa || $c == $osb || $c == $osp || $c == $osq ) {
+			push @new, $self->obs	# insert shellified backslash
 				if ($shell);
 		}
 
-		if ($c == $ofs) {
-			push @new, $obs;	# convert slash to backslash
+		if ($c == $osa) {
+			push @new, $osb;	# convert slash to backslash
 		} else {
 			push @new, $c;
 		}
 	}
-
-#	for (my $i = 0; $i < @str; $i++) {
-#
-#		$str[$i] = $obs if ($str[$i] == $ofs);
-#	}
-#
-#	$str = pack "C*", @str;
 	$str = pack "C*", @new;
 
 	$self->log->trace(sprintf "str [$str] new [%s]", Dumper(\@new));
@@ -418,20 +431,22 @@ __END__
 1=1=c=/=1=/cygdrive/c/xxx
 1=1=d=/=2=/cygdrive/d/Users/abc
 1=1=none=/=2=/dir/xxx
-1=1=c=/=2=/mnt/c//windows/temp06
+1=1=c=/=2=/mnt/c/windows/temp06
 1=1=d=/=2=/mnt/d/Users/abc
 1=1=C=\=2=C:\Users\abc
 1=1=D=\=2=D:\Users\abc
-1=1=C=/=1=C:/Temp01
-1=1=C=\=1=C:\Temp00
+1=1=C=/=1=C:/Temp01a
+1=1=C=\=1=C:\Temp01b
 1=1=server=\=1=\\\\server\\Temp05
 1=1=hostname=\=1=\\hostname\xxx
 1=1=server=\=1=\\server\Temp03a
-1=1=server=\=1=\\server\\Temp04
+0=1=server=\=1=\\server\\Temp04
 1=1=wsl$=\=3=\\wsl$\Ubuntu\home\tomby
 1=1=none=\=2=\mnt\c\window\temp07
 0=1=9=\=1=/cygdrive/9/hello.txt
 0=1=1=\=1=1:\hello.txt
-1=1=this=\=3=\\\\\\\\this\\\is\\wierd\\\\now
-0=1=none=\=1=\server\Temp02
-0=1=none=none=4=this/path has/some spaces/and'apostrophe
+0=1=this=\=3=\\\\\\\\this\\\is\\wierd\\\\now
+1=1=none=\=1=\server\Temp02
+1=1=none=none=4=this/path has/some spaces/and'apostrophe
+1=1=server=none=2=nfshost:/some/path
+#valid=abs=volume=root=levels=path

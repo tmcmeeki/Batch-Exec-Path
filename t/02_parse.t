@@ -28,13 +28,26 @@ my $log = get_logger(__FILE__);
 
 
 # -------- main --------
-$harn->planned(521);
+$harn->planned(539);
 
 my $o1 = Batch::Exec::Path->new;
 isa_ok($o1, $harn->this,		$harn->cond("class check"));
 
 
 # -------- parse (specific) --------
+is($o1->parse("server:/this/is/nfs"), 8,	$harn->cond("parse nfs"));
+is($o1->abs, 1,				$harn->cond("abs"));
+is($o1->drive, undef,			$harn->cond("drive"));
+is($o1->homed, 0,			$harn->cond("homed"));
+is($o1->hybrid, 0,			$harn->cond("hybrid"));
+is($o1->letter, undef,			$harn->cond("letter"));
+is($o1->server, "server",		$harn->cond("server"));
+is($o1->type, 'nfs',			$harn->cond("type"));
+is($o1->unc, 0,				$harn->cond("unc"));
+is_deeply($o1->folders, [qw{ this is nfs }],	$harn->cond("folders"));
+is_deeply($o1->volumes, [],		$harn->cond("volumes"));
+
+
 is($o1->parse("./tmp"), 4,		$harn->cond("parse tmp"));
 is($o1->abs, 0,				$harn->cond("abs"));
 is($o1->drive, undef,			$harn->cond("drive"));
@@ -310,7 +323,7 @@ is_deeply($o1->volumes, [qw/ cygdrive c /],		$harn->cond("volumes"));
 
 
 is($o1->parse('~/tmp'), 4,		$harn->cond("parse home_tmp"));
-is($o1->abs, 1,				$harn->cond("abs"));
+is($o1->abs, 0,				$harn->cond("abs"));
 is($o1->drive, undef,			$harn->cond("drive"));
 is($o1->homed, 1,			$harn->cond("homed"));
 is($o1->letter, undef,			$harn->cond("letter"));
@@ -372,7 +385,7 @@ is_deeply($o1->volumes, [],		$harn->cond("volumes"));
 
 
 is($o1->parse('~'), 2,			$harn->cond("parse tilde"));
-is($o1->abs, 1,				$harn->cond("abs"));
+is($o1->abs, 0,				$harn->cond("abs"));
 is($o1->drive, undef,			$harn->cond("drive"));
 is($o1->homed, 1,			$harn->cond("homed"));
 is($o1->letter, undef,			$harn->cond("letter"));
@@ -398,7 +411,7 @@ for my $pn ($harn->all_paths) {
 
 	use strict;
 
-	if ($o1->unc && $o1->type ne 'wsl') {
+	if (($o1->unc && $o1->type ne 'wsl') || $o1->type eq 'nfs') {
 		isnt($o1->server, undef,	$harn->cond("server value"));
 	} else {
 		is($o1->server, undef,		$harn->cond("server undef"));

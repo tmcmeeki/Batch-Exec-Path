@@ -23,7 +23,7 @@ my $log = get_logger(__FILE__);
 
 
 # -------- main --------
-$harn->planned(472);
+$harn->planned(96);
 
 my $o1 = Batch::Exec::Path->new;
 isa_ok($o1, $harn->this,		$harn->cond("class check"));
@@ -37,7 +37,9 @@ SKIP: {
 }
 
 my $count = 0;
-for my $pni ($harn->all_paths) {
+for my $pni ($harn->valid_paths) {
+
+	$log->debug("pni [$pni]");
 
 	ok($o1->parse($pni) > 1,	$harn->cond("parse"));
 
@@ -45,11 +47,29 @@ for my $pni ($harn->all_paths) {
 
 	ok(length($pno),		$harn->cond("joiner length"));
 
-	$log->debug("pni [$pni] pno [$pno]");
+	if ($o1->type eq 'win' || $o1->type eq 'wsl') {
 
-	is($pno, $pni,			$harn->cond("joiner match"));
+		next if ($pno =~ /(Temp01a|Temp05|temp07)/);
 
-	last if ($count++ > 14);
+		my $wpn = $harn->fs2bs($pno);
+
+		$log->debug("pni [$pni] wpn [$wpn]");
+
+		is($wpn, $pni,		$harn->cond("joiner match win"));
+	} else {
+
+		$log->debug("pni [$pni] pno [$pno]");
+
+		is($pno, $pni,		$harn->cond("joiner match lux"));
+	}
+
+#	last if (++$count > 15);
+#	last if ($pni =~ /xxx/);
+#	last if ($pni =~ /Temp03b/);
+#	last if ($pni =~ /temp06/);
+#	last if ($pni =~ /Temp05/);
+#	last if ($pni =~ /Temp01/);
+#	last if ($pni =~ /Ubuntu/);
 }
 
 

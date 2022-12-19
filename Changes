@@ -1,5 +1,8 @@
 Revision history for Perl extension Batch::Exec::Path.
 
+TO-DO:
+	- support for numeric IPs in a server address (UNC/CIFS or NFS)
+
 0.01  Sun Oct  3 13:21:24 2021
 	- original version; created by h2xs 1.23 with options
 		-AX --skip-exporter --use-new-tests -n Batch::Exec::Path -b 5.10.0

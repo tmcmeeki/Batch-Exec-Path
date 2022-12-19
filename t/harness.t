@@ -13,7 +13,7 @@ use Harness;
 Log::Log4perl->easy_init($DEBUG);
 
 my $harn = Harness->new("hello");
-$harn->planned(494);
+$harn->planned(540);
 
 is($harn->this, "hello",		"this");
 
@@ -46,8 +46,8 @@ is($harn->cond('group2'), "group2 cycle=3",	"group2 third cond");
 
 
 # --- paths ---
-is(ref($harn->_path), "ARRAY",	"path hash");
-is(scalar(@{ $harn->_path }), 33,	"hash entries");
+is(ref($harn->_path), "ARRAY",		"path hash");
+is(scalar(@{ $harn->_path }), 36,	"hash entries");
 
 for(@{ $harn->_path }) {
 
@@ -88,9 +88,9 @@ while (@keys) {
 
 # --- filtering ---
 my @paths = $harn->filter('root', "/");
-is(scalar(@paths), 16,				"filter root");
+is(scalar(@paths), 15,				"filter root");
 
-my @paths = $harn->filter("volume", "C");
+@paths = $harn->filter("volume", "C");
 is(scalar(@paths), 3,				$harn->cond("volume"));
 is(scalar($harn->filter("volume", "C")), 3,	$harn->cond("volume"));
 is(scalar($harn->filter("volume", "c")), 3,	$harn->cond("volume"));
@@ -102,8 +102,9 @@ is(scalar(@paths), 4,				$harn->cond("invalid"));
 is(scalar(@paths), 32,				$harn->cond("valid"));
 
 
-# --- all_paths ---
+# --- path functions ---
 is(scalar($harn->all_paths), 36,		$harn->cond("all_paths"));
+is(scalar($harn->valid_paths), 32,		$harn->cond("valid_paths"));
 
 
 # --- fs2bs ---
@@ -119,4 +120,13 @@ is($harn->fs2bs("a/b/c", 1), "a\\\\b\\\\c",	$harn->cond("fs2bs slash"));
 
 
 # --- cwul ---
-#$harn->cwul($harn, "valid", qw/ a b c d /), 1,	$harn->cond("cwul scalar");
+$harn->cwul($harn, qw[ fs2bs  dummy  dummy  dummy  dummy  dummy  ]);
+
+my $red = qr/^dummy$/;
+
+$harn->cwul($harn, "fs2bs", "dummy", $red, $red, $red, $red);
+
+my $rad = [ qw/ dummy dummy / ];
+
+$harn->cwul($harn, "fs2bs", $rad, $rad, $rad, $rad, $rad);
+

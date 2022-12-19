@@ -169,7 +169,7 @@ $harn->cwul($os2, "_wslroot", $re_wsl, $re_wsl, $re_wsl, $re_wsl);
 #-------- winuser --------
 #isnt($os0->winuser, undef,	$harn->cond("winuser simple"));
 my $re_wu = qr/\w+/;
-$harn->cwul($os0, "winuser", $re_wu, $re_wu, $re_wu, undef);
+$harn->cwul($os0, "winuser", $re_wu, $re_wu, $re_wu, $re_wu);
 
 
 # -------- volume --------

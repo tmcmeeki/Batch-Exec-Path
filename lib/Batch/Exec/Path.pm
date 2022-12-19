@@ -38,11 +38,20 @@ Some notes around how particular platforms present directories:
 
 	Cygwin mounts under /cygdrive 		(from Cygwin)
 
-	Conventional user directories under /home	(Cygwin, WSL, Linux)
+	Conventional user directories under /home	(Linux-like)
 
 Note that the username in hybrid deployments may not related to that of the 
 host platform, so this can be challenging for establishing a user's "home"
 directory.  In addition, conventions above can be overridden by administrators.
+
+Network fileshares are parsed according to protocol conventions, e.g.
+
+	SMB / CIFS	//server/share	(Linux-like platforms)
+	SMB / CIFS	\\server\share	(Windows)
+	NFS		server:/share	(Linux-like platforms)
+
+Currently the NFS convention is only supported for symbolic hostnames
+(as opposed to IP addresses).
 
 =head2 ATTRIBUTES
 
@@ -226,6 +235,21 @@ sub new {
 
 =over 4
 
+=item OBJ->connector
+
+Return the connector string relevant to the specified behaviour.
+This is the correlating method to B<separator>.
+
+=cut
+
+sub connector {
+	my $self = shift;
+
+	return $self->deu if ($self->behaviour eq 'u' || $self->type eq 'nfs');
+
+	return $self->dew;
+}
+
 =item OBJ->default(ATTRIBUTE, VALUE)
 
 Default the attribute to the value.  Defaulting only sets the value if it
@@ -340,6 +364,23 @@ sub home {
 	return $dn;
 }
 
+=item OBJ->is_known(EXPR)
+
+Check if the EXPR is "known", i.e. something other than the value referred to
+by the B<unknown> method.
+
+=cut
+
+sub is_known {
+	my $self = shift;
+	my $expr = shift;
+	confess "SYNTAX is_known(EXPR)" unless defined($expr);
+
+	return 0 if ($expr eq $self->unknown);
+
+	return 1;
+}
+
 =item OBJ->joiner
 
 Joins components together into a pathname.  This method assumes that 
@@ -349,44 +390,77 @@ the B<parse> method has already been called.
 
 sub joiner {
 	my $self = shift;
-	$self->log->logconfess($self->msg) unless (
-		defined($self->type)
+	$self->log->logconfess($self->msg) unless ( defined($self->abs)
+		&& defined($self->type)
 		&& defined($self->unc)
-		&& defined($self->abs)
-		&& defined($self->homed)
 	);
-	my $pn; if ($self->abs) {
+	$self->log->debug(sprintf "abs [%d]", $self->abs);
+	$self->log->debug(sprintf "type [%s] unc [%s]", $self->type, $self->unc);
+	my @parts;
 
-		if ($self->homed) {	# could be a ~ 
+	if ($self->unc || $self->type eq 'wsl') {  # file-share or WSL format
 
-#			$pn = $self->home;
+		push @parts, undef;
 
-		} elsif (defined $self->drive) {
+		push @parts, $self->server if (defined($self->server));
 
-			$pn = join($self->deu, $self->volume);
-#		} else {
-#
-#			$pn = join($self->deu, $self->volume);
-		}
+		push @parts, @{ $self->volumes };
 
-	} else {
-		$pn = "";
+	} elsif ($self->type eq 'nfs') {
+
+		push @parts, $self->server . ':';
+
+	} elsif ($self->type eq 'win') {# && $self->behaviour eq 'w') {
+
+		push @parts, $self->drive;
+
+	} else {		# local format (no server component)
+
+		push @parts, undef if ($self->abs);
+
+		push @parts, @{ $self->volumes };
 	}
 
-	$pn .= join($self->deu, @{ $self->folders });
+	push @parts, @{ $self->folders };
+
+	$self->log->debug(sprintf "parts [%s]", Dumper(\@parts));
+
+	for (my $ss = 0; $ss < @parts; $ss++) {
+
+		$parts[$ss] = $self->connector
+			unless(defined $parts[$ss]);
+	}
+	$self->log->debug(sprintf "parts [%s]", Dumper(\@parts));
+
+	my $pn = join($self->connector, @parts);
+
+	unless (defined $self->server || $self->type eq 'wsl') {
+
+		my $re = $self->separator;
+
+		$pn =~ s/^$re// if ($pn =~ /^$re$re/);
+	}
 
 	$self->log->debug("pn [$pn]");
 
 	return $pn;
 }
 
-sub dshow {
+=item OBJ->dump_struct
+
+Dump debugging information about the current structure.
+
+=cut
+
+sub dump_struct {
 	my $self = shift;
 
-	$self->log->debug(sprintf "DDD drive [%s]", (defined $self->drive) ? $self->drive : $self->unknown);
+	my $null = '(undef)';
+
+	$self->log->debug(sprintf "DDD drive [%s]", (defined $self->drive) ? $self->drive : $null);
 	$self->log->debug(sprintf "FFF folders [%s]", Dumper($self->folders));
-	$self->log->debug(sprintf "HHH hybrid [%s]", (defined $self->hybrid) ? $self->hybrid : $self->unknown);
-	$self->log->debug(sprintf "SSS server [%s]",  (defined $self->server) ? $self->server : $self->unknown);
+	$self->log->debug(sprintf "HHH homed [%s]", (defined $self->homed) ? $self->homed : $null);
+	$self->log->debug(sprintf "SSS server [%s]", (defined $self->server) ? $self->server : $null);
 	$self->log->debug(sprintf "VVV volumes [%s]", Dumper($self->volumes));
 }
 
@@ -425,11 +499,6 @@ sub lexer {
 
 		$drive;
 	},
-#	qw(cyg:CYG_PATHSEP	[\\\/]), sub {
-
-#		$lexer->end('cyg');
-#		$_[1];
-#	},
 	qw{wsl:WSL_DISTRO  [\s\d\w]+}, sub {
 
 		$lexer->end('wsl');
@@ -443,7 +512,6 @@ sub lexer {
 		$lexer->end('unchost');
 		$lexer->start('wsl');
 
-#		$self->default('type', "wsl");
 		$self->hybrid(1);
 		$self->type("wsl");
 		$self->unc(0);
@@ -461,7 +529,7 @@ sub lexer {
 
 		push @{ $self->volumes }, $folder;
 
-		$self->dshow;
+		$self->dump_struct;
 		$folder;
   	},
 	qw(unchost:UNC_HOST  [\w\d\-\_]+), sub {
@@ -470,11 +538,9 @@ sub lexer {
 
 		$self->server($host);
 
-#		push @{ $self->volumes }, $host;
-
 		$lexer->start('share');
 
-		$self->dshow;
+		$self->dump_struct;
 		$host;
   	},
 	"NET_PREFIX_L", "\/\/", sub {  
@@ -486,7 +552,6 @@ sub lexer {
 		$lexer->start('unchost');
 		$_[1];
 	},
-#	"NET_PREFIX_W", '\\\\', sub {  
 #	qw(NET_PREFIX_W	\\{2}), sub {  
 	qw(NET_PREFIX_W \x5c{2}), sub {  	# \x5c = win backslash
 
@@ -500,18 +565,6 @@ sub lexer {
 	},
 	qw(PATHSEP	[\\\/]), sub {
 
-#		my $decr = (defined $self->drive) ? length($self->drive) : 0;
-
-#		$self->log->debug(sprintf "decr [$decr] offset [%s]", $lexer->offset);
-#		my $abs; if ($lexer->offset - $decr == 1) {
-
-#			$abs = 1;
-
-#			$lexer->start('unc') unless defined($self->drive);
-#
-#		} else {
-#			$abs = 0;
-#		}
 		$self->default('abs', 1);
 
 		if ($_[1] =~ /\\/) {
@@ -522,9 +575,7 @@ sub lexer {
 		}
 		$_[1];
 	},
-	qw(WINDRIVE	\w+:), sub {
-
-#		$lexer->end('unc');
+	qw(DOS_DRIVE	\w:), sub {	# for DOS drive format, i.e. C:
 
 		my $drive = $_[1];
 
@@ -534,19 +585,36 @@ sub lexer {
 
 		push @{ $self->volumes }, $drive;
 
-		$self->dshow;
+		$self->dump_struct;
 
 		$drive;
 	},
-	qw(HOME  ~), sub { # tilde is a symbolic reference to an absolute path
+	qw(NET_HOST	\w+:), sub {	# for nfs format, i.e. server:
 
-		$self->default('abs', 1);
-		$self->default('type', "lux");
+		my $server = $self->trim($_[1], qr/:$/);
+
+		$self->default('type', "nfs");
+
+		$self->server($server);
+
+		$self->dump_struct;
+
+		$_[1];
+	},
+	qw(HOME  ~), sub {
+
+		# tilde is a symbolic reference to an absolute path
+		# but is still treated as a relative path
+#		$self->default('abs', 1);
+		$self->abs(0);
+#		$self->default('type', "lux");
 
 		push @{ $self->folders }, $_[1];
 
 		$self->homed(1);
-		$self->dshow;
+
+		$self->dump_struct;
+
 		$_[1];
 	},
 	qw{CYG_ROOT  [Cc][Yy][Gg][Dd]\w+}, sub {
@@ -577,8 +645,7 @@ sub lexer {
 
 		push @{ $self->folders }, $folder;
 
-#		$lexer->end('unc');
-		$self->dshow;
+		$self->dump_struct;
 
 		$folder;
 	},
@@ -589,8 +656,6 @@ sub lexer {
 	);
 	$self->log->trace(sprintf "token [%s]", Dumper(\@token));
 
-#	Parse::Lex->inclusive('unc');
-#	Parse::Lex->inclusive('cyg');
 	Parse::Lex->inclusive(qw/ cyg share unchost wsl /);
 
 	Parse::Lex->trace(1) if ($ENV{'DEBUG'});
@@ -645,6 +710,21 @@ sub parse {
 	$self->default('unc', 0);
 
 	return $count;
+}
+
+=item OBJ->separator
+
+Return the connector string relevant to the specified behaviour.
+This is the correlating method to B<connector>.
+
+=cut
+
+sub separator {
+	my $self = shift;
+
+	return $self->reu if ($self->behaviour eq 'u');
+
+	return $self->rew;
 }
 
 =item OBJ->slash([EXPR])
@@ -751,13 +831,14 @@ sub volume {
 
 	$self->log->debug(sprintf "type [%s] unc [%d]", $self->type, $self->unc);
 	$self->log->debug(sprintf "on_windows [%d] on_wsl [%d]", $self->on_windows, $self->on_wsl);
-	$self->dshow;
+	$self->dump_struct;
 
 	my $volume; if ($self->on_windows) {
 
-#		if ($self->on_wsl && $self->type eq 'wsl') {
 		if ($self->type eq 'wsl') {
+
 			$volume = join($self->deu, $self->deu, $self->_wslroot);
+
 		} else {
 			if (defined $self->server) {
 				$volume = join($self->deu, $self->tld, $self->letter);
@@ -767,6 +848,7 @@ sub volume {
 		}
 	} else {
 		$self->log->debug(sprintf "deu [%s]", $self->deu);
+
 		$self->log->debug(sprintf "letter [%s]", $self->letter);
 
 		if ($self->on_wsl && $self->type eq 'wsl') {
@@ -776,9 +858,7 @@ sub volume {
 		} else {
 			if (defined $self->letter) {
 
-#				if ($self->on_cygwin || $self->on_wsl) {
-
-					$volume = join($self->deu, $self->tld, $self->letter);
+				$volume = join($self->deu, $self->tld, $self->letter);
 #				if ($self->letter eq $self->unknown) {
 #				} else {
 #					$volume = $self->tld . $self->letter;
@@ -796,24 +876,33 @@ sub volume {
 =item OBJ->winuser
 
 Returns the name of the current Windows user (Windows-like platforms only).
-This makes a call to Powershell.
+This makes a call to Powershell.  If that is not possible or returns no
+value then a failsafe PERL-native call is made.
 
 =cut
 
 sub winuser {
 	my $self = shift;
 
-	return undef unless ($self->like_windows);
-
-#	$self->echo(1);
-
+	$self->echo(1);	# debugging
 	my $cmd; if ($self->on_windows) {
+
 		$cmd = q{powershell.exe "$env:UserName"};
-	} else {
+
+	} elsif ($self->like_windows) {
+
 		$cmd = q{powershell.exe '$env:UserName'};
+	} else {
+		$cmd = q{pwsh '$env:UserName'};
 	}
 	my @result = $self->c2a($cmd);
 
+	unless (scalar @result) {
+
+		$self->log->warn("[$cmd] produced no result, defaulting via PERL");
+		$result[0] = getpwuid($<);
+
+	}
 	$self->log->debug(sprintf "result [%s]", Dumper(\@result));
 
 	return $result[0] if (@result);
@@ -882,14 +971,9 @@ Determine the host's directory location of the current WSL distribution root.
 sub wslroot {	# determine the host location of the WSL distro root
 	my $self = shift;
 
-	#return undef unless ($self->on_windows);
-#	return undef unless ($self->like_windows);
-
 	my $root = $self->_wslroot;
 
 	return undef unless(-d $root);
-
-	#my $files = readpipe(sprintf "%s %s", ($self->on_windows) ? "dir" : "ls", $root); $self->log->debug("files [$files]");
 
 	return $self->slash($root);
 }
