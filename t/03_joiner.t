@@ -8,45 +8,49 @@ use strict;
 use Data::Dumper;
 #use Log::Log4perl qw/ :easy /; Log::Log4perl->easy_init($DEBUG);
 use Logfer qw/ :all /;
-use Test::More tests => 45;
-
-BEGIN { use_ok('Batch::Exec::Path') };
+use Test::More; # tests => 45;
+use lib 't';
+use Harness;
 
 
 # -------- constants --------
 
 
 # -------- global variables --------
+my $harn = Harness->new('Batch::Exec::Path');
+use_ok($harn->this);
 my $log = get_logger(__FILE__);
 
 
 # -------- main --------
-my $cycle = 1;
+$harn->planned(472);
 
 my $o1 = Batch::Exec::Path->new;
-isa_ok($o1, "Batch::Exec::Path",	"class check $cycle"); $cycle++;
+isa_ok($o1, $harn->this,		$harn->cond("class check"));
 
 
 # ---- joiner ----
 SKIP: {
 	skip "joiner fatal", 1;
 
-	is($o1->joiner, "/",		$harness->cond("joiner fatal"));
+	is($o1->joiner, "/",		$harn->cond("joiner fatal"));
 }
 
 my $count = 0;
-for my $pni ($harness->all_paths) {
+for my $pni ($harn->all_paths) {
 
-	ok($o1->parse($pni) > 1,	$harness->cond("parse"));
+	ok($o1->parse($pni) > 1,	$harn->cond("parse"));
 
 	my $pno = $o1->joiner;
 
-	ok(length($pno),		$harness->cond("joiner length"));
-	is($pni, $pno,			$harness->cond("joiner match"));
+	ok(length($pno),		$harn->cond("joiner length"));
 
-	last if ($count++ > 10);
+	$log->debug("pni [$pni] pno [$pno]");
+
+	is($pno, $pni,			$harn->cond("joiner match"));
+
+	last if ($count++ > 14);
 }
-exit -1;
 
 
 __END__

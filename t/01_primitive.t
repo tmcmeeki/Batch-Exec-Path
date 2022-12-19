@@ -20,7 +20,7 @@ use Harness;
 #BEGIN { use_ok('Batch::Exec::Path') };
 my $harn = Harness->new('Batch::Exec::Path');
 
-$harn->planned(75);
+$harn->planned(74);
 use_ok($harn->this);
 #require_ok($harn->this);
 
@@ -45,19 +45,19 @@ isa_ok($os1, $harn->this,		$harn->cond("class check"));
 my $os2 = Batch::Exec::Path->new;
 isa_ok($os2, $harn->this,		$harn->cond("class check"));
 
+my $os3 = Batch::Exec::Path->new;
+isa_ok($os2, $harn->this,		$harn->cond("class check"));
+
 
 # -------- drive_letter --------
 is($os0->drive_letter("c"), "c",	$harn->cond("drive_letter simple"));
 is($os0->drive, "c:",			$harn->cond("drive simple"));
-is($os0->letter, "c",			$harn->cond("letter simple"));
 
 is($os0->drive_letter("c:"), "c",	$harn->cond("drive_letter colon"));
 is($os0->drive, "c:",			$harn->cond("drive colon"));
-is($os0->letter, "c",			$harn->cond("letter colon"));
 
-is($os0->drive_letter('wsl$'), "wsl",	$harn->cond("drive_letter bucks"));
+is($os0->drive_letter('wsl$'), 'wsl$',	$harn->cond("drive_letter bucks"));
 is($os0->drive, 'wsl$',			$harn->cond("drive bucks"));
-is($os0->letter, "wsl",			$harn->cond("letter bucks"));
 
 
 # -------- slash and shellify: unix behaviour --------
@@ -164,6 +164,12 @@ $harn->cwul($os2, qw[  tld  /cygdrive  //wsl$/Ubuntu  //wsl$/Ubuntu], "");
 my $re_wsl = qr[wsl\$\/\w+];
 like($os2->_wslroot, qr/.+/,		$harn->cond("_wslroot has value"));
 $harn->cwul($os2, "_wslroot", $re_wsl, $re_wsl, $re_wsl, $re_wsl);
+
+
+#-------- winuser --------
+#isnt($os0->winuser, undef,	$harn->cond("winuser simple"));
+my $re_wu = qr/\w+/;
+$harn->cwul($os0, "winuser", $re_wu, $re_wu, $re_wu, undef);
 
 
 # -------- volume --------

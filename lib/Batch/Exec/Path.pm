@@ -15,7 +15,34 @@ Copyright (C) 2021  B<Tom McMeekin> tmcmeeki@cpan.org
 
 =head1 DESCRIPTION
 
-___detailed_class_description_here___
+Pathname parser for cross-platform contexts, particularly catering to hybrid
+or virtualised environments.  Specifically this class provides support for: 
+Windows, Linux, Cygwin and WSL platforms, where the latter two are
+adaptations of Linux which run hybrid on Windows and have idiosyncrasies around
+how host filesystems are mounted.
+
+In addition, UNC paths are supported, particularly given the lack of support 
+for this format in modules deployed to CPAN.
+
+Some notes around how particular platforms present directories:
+
+	WSL root directory \\wsl$\Ubuntu	(from Windows)
+
+	Windows system drive /mnt/c		(from WSL)
+
+	WSL user directory \\wsl$\Ubuntu\home\userwsl	(from Windows)
+
+	Windows user directory /mnt/c/Users/userwin	(from WSL)
+
+	Windows user directory C:\Users\userwin	(from Windows)
+
+	Cygwin mounts under /cygdrive 		(from Cygwin)
+
+	Conventional user directories under /home	(Cygwin, WSL, Linux)
+
+Note that the username in hybrid deployments may not related to that of the 
+host platform, so this can be challenging for establishing a user's "home"
+directory.  In addition, conventions above can be overridden by administrators.
 
 =head2 ATTRIBUTES
 
@@ -66,6 +93,8 @@ use constant ENV_WSL_DISTRO => $ENV{'WSL_DISTRO_NAME'};
 
 use constant DN_MOUNT_WSL => "mnt";
 use constant DN_MOUNT_CYG => "cygdrive";
+
+use constant DN_ROOT_ALL => '/';	# the default root
 use constant DN_ROOT_WSL => 'wsl$';	# this is a WSL location only
 					# e.g. \\wsl$\Ubuntu\home (from DOS)
 use constant FN_HOME => "home";
@@ -111,10 +140,13 @@ my %_attribute = (	# _attributes are restricted; no direct get/set
 	drive => undef,
 	folders => [],
 	homed => undef,
+	hybrid => undef,
 	letter => undef,
 	server => undef,
 	type => undef,
 	unc => undef,
+	volumes => [],
+	mount => undef,
 );
 
 #sub INIT { };
@@ -167,7 +199,17 @@ sub new {
 #	$self->{'_id'} = ++$_n_objects;
 	$self->behaviour(($self->on_windows) ? "w" : "u");
 	$self->home;
+	if ($self->on_cygwin) {
 
+		$self->mount(DN_MOUNT_CYG);
+
+	} elsif ($self->on_wsl) {
+
+		$self->mount(DN_MOUNT_WSL);
+
+	} else {
+		$self->mount(DN_ROOT_ALL);
+	}
 	while (my ($method, $value) = each %args) {
 
 		confess "SYNTAX new(, ...) value not specified"
@@ -241,7 +283,8 @@ sub drive_letter {
 
 	$self->log->debug(sprintf "letter [$letter] on_windows [%d]", $self->on_windows);
 
-	$letter =~ s/[:\$]$//;
+#	$letter =~ s/[:\$]$//;
+	$letter =~ s/:$//;	# a trailing $ is important; do not strip
 
 #	if ($self->on_linux && ! $self->on_wsl) {
 #		$drive = $self->unknown;
@@ -306,37 +349,45 @@ the B<parse> method has already been called.
 
 sub joiner {
 	my $self = shift;
-	$self->log->logconfess($self->msg) unless defined($self->type);
-
-#	my $reu = $self->reu;
-
-#	$self->parse($pn);	# this should force a parse
-
-#	my $pn = ($self->abs) ? $self->deu . $self->deu : ".";
-
+	$self->log->logconfess($self->msg) unless (
+		defined($self->type)
+		&& defined($self->unc)
+		&& defined($self->abs)
+		&& defined($self->homed)
+	);
 	my $pn; if ($self->abs) {
 
-		$pn = (defined $self->server) ? join($self->deu, $self->deu, $self->server) : "";
+		if ($self->homed) {	# could be a ~ 
 
-		if (defined $self->drive) {
-			if ($self->type eq 'win') {
-				$pn .= join($self->deu, $self->letter);
-			} else {
-				$pn .= join($self->deu, $self->tld, $self->drive);
-			}
-		} else {
-			$pn .= $self->deu;
+#			$pn = $self->home;
+
+		} elsif (defined $self->drive) {
+
+			$pn = join($self->deu, $self->volume);
+#		} else {
+#
+#			$pn = join($self->deu, $self->volume);
 		}
+
 	} else {
 		$pn = "";
 	}
-	$self->log->debug("pn [$pn]");
 
 	$pn .= join($self->deu, @{ $self->folders });
 
 	$self->log->debug("pn [$pn]");
 
 	return $pn;
+}
+
+sub dshow {
+	my $self = shift;
+
+	$self->log->debug(sprintf "DDD drive [%s]", (defined $self->drive) ? $self->drive : $self->unknown);
+	$self->log->debug(sprintf "FFF folders [%s]", Dumper($self->folders));
+	$self->log->debug(sprintf "HHH hybrid [%s]", (defined $self->hybrid) ? $self->hybrid : $self->unknown);
+	$self->log->debug(sprintf "SSS server [%s]",  (defined $self->server) ? $self->server : $self->unknown);
+	$self->log->debug(sprintf "VVV volumes [%s]", Dumper($self->volumes));
 }
 
 =item OBJ->lexer
@@ -354,61 +405,114 @@ sub lexer {
 		$lexer = $self->{'_lexer'};
 
 		$lexer->reset;
-		$lexer->end('unc');
+		$lexer->end('cyg');
+		$lexer->end('share');
+		$lexer->end('unchost');
+		$lexer->end('wsl');
 
 		return $lexer;
 	}
 	my @token = (
-#	qw(unc:NETPATH 	[\\\/]), sub {  
-	"unc:NETPATH", '[\\\/]', sub {  
+	qw(cyg:CYG_DRIVE	\w), sub {
 
-		$self->unc(1);
+		$lexer->end('cyg');
+
+		my $drive = $_[1];
+
+		push @{ $self->volumes }, $drive;
+
+		$self->drive_letter($drive);
+
+		$drive;
+	},
+#	qw(cyg:CYG_PATHSEP	[\\\/]), sub {
+
+#		$lexer->end('cyg');
+#		$_[1];
+#	},
+	qw{wsl:WSL_DISTRO  [\s\d\w]+}, sub {
+
+		$lexer->end('wsl');
+
+		push @{ $self->volumes }, $_[1];
 
 		$_[1];
   	},
-	qw(unc:NETDRIVE  \w+\$), sub {
+	qw{unchost:WSL_ROOT  [Ww][Ss][Ll]\$}, sub {
 
-		$lexer->end('unc');
+		$lexer->end('unchost');
+		$lexer->start('wsl');
 
-		$self->type("wsl")
-			 if ($_[1] =~ /wsl/i);
+#		$self->default('type', "wsl");
+		$self->hybrid(1);
+		$self->type("wsl");
+		$self->unc(0);
 
-		$self->drive_letter($_[1]);
+		push @{ $self->volumes }, $_[1];
 
 		$_[1];
   	},
-	qw(unc:SERVER  \w+), sub {
+	qw(share:NET_SHARE  [\w\d\-\_]+\$?), sub {
 
-		# if you've already defined the server
+		$lexer->end('unchost');
+		$lexer->end('share');
 
-		if ($self->unc && !defined($self->server)) {
+		my $folder = $_[1];
 
-			$self->server($_[1]);
-		} else {
-			push @{ $self->folders }, $_[1];
+		push @{ $self->volumes }, $folder;
 
-			$lexer->end('unc');
-		}
-		$_[1];
+		$self->dshow;
+		$folder;
   	},
+	qw(unchost:UNC_HOST  [\w\d\-\_]+), sub {
+
+		my $host = $_[1];
+
+		$self->server($host);
+
+#		push @{ $self->volumes }, $host;
+
+		$lexer->start('share');
+
+		$self->dshow;
+		$host;
+  	},
+	"NET_PREFIX_L", "\/\/", sub {  
+
+		$self->default('abs', 1);
+		$self->default('type', "lux");
+		$self->default('unc', 1);
+
+		$lexer->start('unchost');
+		$_[1];
+	},
+#	"NET_PREFIX_W", '\\\\', sub {  
+#	qw(NET_PREFIX_W	\\{2}), sub {  
+	qw(NET_PREFIX_W \x5c{2}), sub {  	# \x5c = win backslash
+
+		$self->default('abs', 1);
+		$self->default('type', "win");
+		$self->default('unc', 1);
+
+		$lexer->start('unchost');
+
+		$_[1];
+	},
 	qw(PATHSEP	[\\\/]), sub {
 
-		my $decr = (defined $self->drive) ? length($self->drive) : 0;
+#		my $decr = (defined $self->drive) ? length($self->drive) : 0;
 
-		$self->log->debug(sprintf "decr [$decr] offset [%s]", $lexer->offset);
-		my $abs; if ($lexer->offset - $decr == 1) {
+#		$self->log->debug(sprintf "decr [$decr] offset [%s]", $lexer->offset);
+#		my $abs; if ($lexer->offset - $decr == 1) {
 
-			$abs = 1;
+#			$abs = 1;
 
-			$lexer->start('unc');
-
-		} else {
-			$abs = 0;
-		}
-		$self->log->debug("abs [$abs]");
-
-		$self->default('abs', $abs);
-		#$self->abs($abs);
+#			$lexer->start('unc') unless defined($self->drive);
+#
+#		} else {
+#			$abs = 0;
+#		}
+		$self->default('abs', 1);
 
 		if ($_[1] =~ /\\/) {
 
@@ -416,53 +520,67 @@ sub lexer {
 		} else {
 			$self->default('type', "lux");
 		}
-
 		$_[1];
 	},
-	qw(LOCALDRIVE	\w+:), sub {
+	qw(WINDRIVE	\w+:), sub {
+
+#		$lexer->end('unc');
+
+		my $drive = $_[1];
 
 		$self->default('type', "win");
 
-		$self->drive_letter($_[1]);
+		$self->drive_letter($drive);
 
-		$_[1];
+		push @{ $self->volumes }, $drive;
+
+		$self->dshow;
+
+		$drive;
 	},
 	qw(HOME  ~), sub { # tilde is a symbolic reference to an absolute path
 
 		$self->default('abs', 1);
 		$self->default('type', "lux");
 
+		push @{ $self->folders }, $_[1];
+
 		$self->homed(1);
+		$self->dshow;
+		$_[1];
 	},
-	qw(FOLDER  [\s\'\.\w]+), sub {
+	qw{CYG_ROOT  [Cc][Yy][Gg][Dd]\w+}, sub {
 
-		$self->homed(1) if ($_[1] =~ /^home$/i);
+		$self->type("cyg");
+		$self->hybrid(1);
 
-		my $raf = $self->folders;
+		push @{ $self->volumes }, $_[1];
 
-		push @$raf, $_[1];
-
-		$self->log->debug(sprintf "raf [%s]", Dumper($raf));
-
-		if (@$raf > 1) {	# check for cygdrive / mnt
-
-			if ($raf->[0] =~ /cygdrive/i) {
-
-				$self->type('cyg');
-
-				$self->drive_letter($raf->[1]);
-
-			} elsif ($raf->[0] =~ /mnt/i) {
-
-				$self->default('type', "wsl")
-					if ($self->on_wsl);
-
-				$self->drive_letter($raf->[1]);
-			}
-		}
-		$lexer->end('unc');
+		$lexer->start('cyg');
 
 		$_[1];
+  	},
+	qw(FOLDER  [\s\'\.\w]+), sub {
+
+		my $folder = $_[1];
+
+		$self->homed(1) if ($folder =~ /^home$/i);
+		$self->homed(1) if ($folder =~ /^Users$/);
+
+		$self->default('abs', 0);
+
+		if (scalar(@{ $self->folders }) == 1) {
+
+			$self->drive_letter($folder)
+				if ($self->folders->[0] =~ /^mnt$/i);
+		}
+
+		push @{ $self->folders }, $folder;
+
+#		$lexer->end('unc');
+		$self->dshow;
+
+		$folder;
 	},
 	qw(ERROR  .*), sub {
 
@@ -471,7 +589,10 @@ sub lexer {
 	);
 	$self->log->trace(sprintf "token [%s]", Dumper(\@token));
 
-	Parse::Lex->inclusive('unc');
+#	Parse::Lex->inclusive('unc');
+#	Parse::Lex->inclusive('cyg');
+	Parse::Lex->inclusive(qw/ cyg share unchost wsl /);
+
 	Parse::Lex->trace(1) if ($ENV{'DEBUG'});
 
 	$lexer = Parse::Lex->new(@token);
@@ -497,11 +618,13 @@ sub parse {
 	$self->abs(undef);
 	$self->drive(undef);
 	$self->homed(undef);
+	$self->hybrid(undef);
 	$self->letter(undef);
 	$self->folders([]);
 	$self->server(undef);
 	$self->type(undef);
 	$self->unc(undef);
+	$self->volumes([]);
 
 	my $lex = $self->lexer;
 
@@ -517,6 +640,7 @@ sub parse {
 	# failsafe value following undef above
 	$self->default('abs', 0);
 	$self->default('homed', 0);
+	$self->default('hybrid', 0);
 	$self->default('type', "lux");
 	$self->default('unc', 0);
 
@@ -574,6 +698,8 @@ sub tld {
 	my $hostpath = join($self->deu, $self->deu, $self->server)
 		if (defined $self->server);
 
+	$self->log->debug(sprintf "hostpath [%s]", (defined $hostpath) ? $hostpath : "(undef)");
+
 	my $tld; if ($self->on_cygwin) {
 
 		$tld = ($hostpath) ? $hostpath : $self->deu . DN_MOUNT_CYG;
@@ -608,9 +734,11 @@ sub tld {
 	return $tld;
 }
 
-=item OBJ->volume([EXPR])
+=item OBJ->volume([DRIVE])
 
-Generate a volume string which is platform depedent, e.g C: or /cygdrive/c
+Generate a volume string which is platform depedent, e.g C: or /cygdrive/c.
+NOTE: this routine is fatal if no drive has been defined (see the B<drive_letter> method, and since not all paths will have a volume, this check should be
+made first.
 
 =cut
 
@@ -619,10 +747,11 @@ sub volume {
 	$self->drive_letter(shift) if (@_);
 	$self->log->logconfess($self->msg) unless (
 		defined($self->type) && defined($self->unc));
-	confess "SYNTAX volume(EXPR)" unless defined($self->drive);
+	confess "SYNTAX volume(DRIVE)" unless defined($self->drive);
 
 	$self->log->debug(sprintf "type [%s] unc [%d]", $self->type, $self->unc);
 	$self->log->debug(sprintf "on_windows [%d] on_wsl [%d]", $self->on_windows, $self->on_wsl);
+	$self->dshow;
 
 	my $volume; if ($self->on_windows) {
 
@@ -662,6 +791,34 @@ sub volume {
 	$self->log->debug("volume [$volume]");
 
 	return $volume;
+}
+
+=item OBJ->winuser
+
+Returns the name of the current Windows user (Windows-like platforms only).
+This makes a call to Powershell.
+
+=cut
+
+sub winuser {
+	my $self = shift;
+
+	return undef unless ($self->like_windows);
+
+#	$self->echo(1);
+
+	my $cmd; if ($self->on_windows) {
+		$cmd = q{powershell.exe "$env:UserName"};
+	} else {
+		$cmd = q{powershell.exe '$env:UserName'};
+	}
+	my @result = $self->c2a($cmd);
+
+	$self->log->debug(sprintf "result [%s]", Dumper(\@result));
+
+	return $result[0] if (@result);
+
+	return undef;
 }
 
 =item OBJ->wslhome

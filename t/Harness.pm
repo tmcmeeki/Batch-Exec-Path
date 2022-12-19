@@ -142,12 +142,14 @@ sub cwul {	# four-way platform-related test
 
 			my $ref = ref($check);
 
-			$self->log->debug(sprintf "method [$meth(%s)] [$platform] ref [$ref] check [$check]", join(', ', @_));
+			$self->log->debug(sprintf "method [$meth(%s)] [$platform] ref [$ref] check [%s]", join(', ', @_), (defined $check) ? $check : "(undef)");
 
 			if ($ref eq 'Regexp') {
 				like($obj->$meth(@_), $check, $self->cond($meth));
-			} else {
+			} elsif ($ref eq '') {
 				is($obj->$meth(@_), $check, $self->cond($meth));
+			} else {
+				is_deeply($obj->$meth(@_), $check, $self->cond($meth));
 			}
 
 			$tested = 1;
@@ -399,7 +401,6 @@ __END__
 
 #valid=abs=volume=root=levels=path
 1=1=none=/=0=/
-1=1=none=/=0=~
 1=1=none=/=0=.
 1=1=none=/=0=..
 1=1=none=/=1=/tmp

@@ -1,49 +1,48 @@
 #!/usr/bin/perl
 #
-# 00basic.t - test harness for the Batch::Exec::Path.pm module: basics
+# 00_basic.t - test harness for the Batch::Exec::Path.pm module: basics
 #
 use strict;
 
-#use Data::Compare;
 use Data::Dumper;
-use Log::Log4perl qw/ :easy /;
-#use Logfer qw/ :all /;
-use Test::More tests => 114;
+use Test::More; # tests => 45;
+use lib 't';
+use Harness;
 
-BEGIN { use_ok('Batch::Exec::Path') };
 
 
 # -------- constants --------
-#use constant RE_PATH_DELIM => qr/[\\\/]+/;
 
 
 # -------- global variables --------
-Log::Log4perl->easy_init($ERROR);
-#Log::Log4perl->easy_init($DEBUG);
-my $log = get_logger(__FILE__);
+my $harn = Harness->new('Batch::Exec::Path');
+my $log = $harn->log;
 
 
 # -------- main --------
-my $cycle = 1;
+$harn->planned(123);
 
-my $obc = Batch::Exec::Path->new;
-isa_ok($obc, "Batch::Exec::Path",	"class check $cycle"); $cycle++;
+use_ok($harn->this);
 
 my $obp = Batch::Exec->new;
-isa_ok($obp, "Batch::Exec",		"class check $cycle"); $cycle++;
+isa_ok($obp, "Batch::Exec",		$harn->cond("class check parent"));
 
-#$log->debug(sprintf "obc [%s]", Dumper($obc));
+my $o1 = Batch::Exec::Path->new;
+isa_ok($o1, $harn->this,		$harn->cond("class check"));
+
+my $o2 = Batch::Exec::Path->new;
+isa_ok($o2, $harn->this,		$harn->cond("class check"));
 
 
 # -------- attributes --------
-my @cttr = $obc->Attributes;
+my @cttr = $o1->Attributes;
 my @pttr = $obp->Attributes;
-is(scalar(@cttr) - scalar(@pttr), 19,	"class attributes");
-is(shift @cttr, 'Batch::Exec::Path',	"class okay");
+is(scalar(@cttr) - scalar(@pttr), 22,	$harn->cond("class attributes"));
+is(shift @cttr, 'Batch::Exec::Path',	$harn->cond("class okay"));
 
 for my $attr (@cttr) {
 
-	my $dfl = $obc->$attr;
+	my $dfl = $o1->$attr;
 
 	next if (ref($dfl) ne "");	# skip attributes which aren't scalars
 
@@ -55,77 +54,74 @@ for my $attr (@cttr) {
 		$type = "s";
 	}
 
-	is($obc->$attr($set), $set,	"$attr set cycle $cycle");
-	isnt($obc->$attr, $dfl,	"$attr check cycle $cycle");
+	is($o1->$attr($set), $set,	$harn->cond("$attr set"));
+	isnt($o1->$attr, $dfl,		$harn->cond("$attr check"));
 
-	$log->debug(sprintf "attr [$attr]=%s", $obc->$attr);
+	$log->debug(sprintf "attr [$attr]=%s", $o1->$attr);
 
 	if ($type eq "s") {
 		my $ck = (defined $dfl) ? $dfl : "_null_";
 
-		ok($obc->$attr ne $ck, "$attr string cycle $cycle");
+		ok($o1->$attr ne $ck, 	$harn->cond("$attr string"));
 	} else {
-		ok($obc->$attr < 0,	"$attr number cycle $cycle");
+		ok($o1->$attr < 0,	$harn->cond("$attr number"));
 	}
-	is($obc->$attr($dfl), $dfl,	"$attr reset cycle $cycle");
-
-        $cycle++;
+	is($o1->$attr($dfl), $dfl,	$harn->cond("$attr reset"));
 }
 
 
 # -------- behaviour defaults --------
-like($obc->behaviour, qr/[uw]/,		"valid behaviour defined");
+like($o1->behaviour, qr/[uw]/,	$harn->cond("valid behaviour defined"));
 
-if ($obc->on_windows) {
-	is($obc->behaviour, "w",	"windows behaviour on_windows");
+if ($o1->on_windows) {
+	is($o1->behaviour, "w",	$harn->cond("windows behaviour on_windows"));
 
 } else {
-	is($obc->behaviour, "u",	"unix behaviour off windows");
+	is($o1->behaviour, "u",	$harn->cond("unix behaviour off windows"));
 }
 
-if ($obc->like_windows) {
+if ($o1->like_windows) {
 
-	my $like = ($obc->on_cygwin || $obc->on_wsl) ? 'u' : 'w';
+	my $lp = ($o1->on_cygwin || $o1->on_wsl) ? 'u' : 'w';
 	
-	is($obc->behaviour, $like,	"$like-like behaviour like_windows");
+	is($o1->behaviour, $lp,	$harn->cond("$lp behaviour like_windows"));
 } else {
-	is($obc->behaviour, "u",	"unix behaviour unlike windows");
+	is($o1->behaviour, "u",	$harn->cond("unix behaviour unlike windows"));
 }
 
-if ($obc->like_unix) {
-	is($obc->behaviour, "u",	"unix behaviour like_unix");
+if ($o1->like_unix) {
+	is($o1->behaviour, "u",	$harn->cond("unix behaviour like_unix"));
 } else {
-	is($obc->behaviour, "w",	"windows behaviour unlike unix");
+	is($o1->behaviour, "w",	$harn->cond("windows behaviour unlike unix"));
 }
 
 
 # -------- home --------
-my $o1 = Batch::Exec::Path->new;
-isa_ok($o1, "Batch::Exec::Path",	"class check $cycle"); $cycle++;
-
 my $reh = qr/(home|users)/i;
 
-isnt($o1->home, "",			"home defined");
-like($o1->home, $reh,			"home matches");
+isnt($o2->home, "",			$harn->cond("home defined"));
+like($o2->home, $reh,			$harn->cond("home matches"));
 
-is($o1->home("foo"), "foo",		"home override set");
-is($o1->home, "foo",			"home override query");
-like($o1->home(undef), $reh,		"home default");
+is($o2->home("foo"), "foo",		$harn->cond("home override set"));
+is($o2->home, "foo",			$harn->cond("home override query"));
+like($o2->home(undef), $reh,		$harn->cond("home default"));
 
-$log->info(sprintf "HOME is [%s]", $o1->home);
+$log->info(sprintf "HOME is [%s]", $o2->home);
+
+$harn->cwul($o1, "home", qr/cygdrive/, qr/Users/, qr/home/, qr/home/);
 
 
 # -------- extant --------
-is(-d ".", $o1->extant(".", 'd'),			"dot extant");
-is(-d $o1->dn_start, $o1->extant($o1->dn_start, 'd'),	"dn_start extant");
-is(-d $o1->home, $o1->extant($o1->home, 'd'),		"home extant");
+is(-d ".", $o2->extant(".", 'd'),			$harn->cond("dot extant"));
+is(-d $o2->dn_start, $o2->extant($o2->dn_start, 'd'),	$harn->cond("dn_start extant"));
+is(-d $o2->home, $o2->extant($o2->home, 'd'),		$harn->cond("home extant"));
 
 
 __END__
 
 =head1 DESCRIPTION
 
-00basic.t - test harness for the Batch::Exec::Path.pm module: basics
+00_basic.t - test harness for the Batch::Exec::Path.pm module: basics
 
 =head1 VERSION
 
