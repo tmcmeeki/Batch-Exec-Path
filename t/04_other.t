@@ -4,7 +4,7 @@
 #
 use strict;
 
-use Data::Compare;
+#use Data::Compare;
 use Data::Dumper;
 use Log::Log4perl qw/ :easy /; Log::Log4perl->easy_init($ERROR);
 #use Logfer qw/ :all /;

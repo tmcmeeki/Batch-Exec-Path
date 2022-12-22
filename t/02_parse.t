@@ -28,7 +28,7 @@ my $log = get_logger(__FILE__);
 
 
 # -------- main --------
-$harn->planned(539);
+$harn->planned(546);
 
 my $o1 = Batch::Exec::Path->new;
 isa_ok($o1, $harn->this,		$harn->cond("class check"));
@@ -261,10 +261,10 @@ is($o1->letter, 'c',			$harn->cond("letter"));
 is($o1->server, undef,			$harn->cond("server"));
 is($o1->type, 'lux',			$harn->cond("type"));
 is($o1->unc, 0,				$harn->cond("unc"));
-#is_deeply($o1->folders, [qw/ Users jbloggs /],	$harn->cond("folders"));
-is_deeply($o1->folders, [qw/ mnt c Users jbloggs /],	$harn->cond("folders"));
-#is_deeply($o1->volumes, [qw/ mnt c /],	$harn->cond("volumes"));
-is_deeply($o1->volumes, [],	$harn->cond("volumes"));
+is_deeply($o1->folders, [qw/ Users jbloggs /],	$harn->cond("folders"));
+#is_deeply($o1->folders, [qw/ mnt c Users jbloggs /],	$harn->cond("folders"));
+is_deeply($o1->volumes, [qw/ mnt c /],	$harn->cond("volumes"));
+#is_deeply($o1->volumes, [],	$harn->cond("volumes"));
 
 
 is($o1->parse('C:\\Users\\jbloggs'), 6,	$harn->cond("parse winhome"));
@@ -291,8 +291,8 @@ is($o1->drive, 'c:',			$harn->cond("drive"));
 #$harn->cwul($o1, "drive", undef, undef, "c:", undef);
 my $ran = [ 'mnt', 'c', 'windows', 'temp' ];
 #$harn->cwul($o1, "folders", $ran, $ran, [ 'windows', 'temp' ], $ran);
-is_deeply($o1->folders, [ qw/ mnt c windows temp / ],	$harn->cond("folders"));
-is_deeply($o1->volumes, [],		$harn->cond("volumes"));
+is_deeply($o1->folders, [ qw/ windows temp / ],	$harn->cond("folders"));
+is_deeply($o1->volumes, [qw/ mnt c /],		$harn->cond("volumes"));
 #is_deeply($o1->volumes, [ 'mnt', 'c' ],		$harn->cond("volumes"));
 
 $harn->cwul($o1, qw[ volume /cygdrive/c c: /mnt/c /c ]);
@@ -306,8 +306,8 @@ is($o1->type, 'win',			$harn->cond("type"));
 is($o1->homed, 0,			$harn->cond("homed"));
 is($o1->abs, 1,				$harn->cond("abs"));
 is($o1->drive, 'c:',			$harn->cond("drive"));
-is_deeply($o1->folders, [ 'mnt', 'c', 'window', 'temp' ],	$harn->cond("folders"));
-is_deeply($o1->volumes, [],		$harn->cond("volumes"));
+is_deeply($o1->folders, [qw/ window temp /],	$harn->cond("folders"));
+is_deeply($o1->volumes, [qw/ mnt c /],		$harn->cond("volumes"));
 
 
 is($o1->parse('/cygdrive/c/windows/temp'), 9,	$harn->cond("parse cygdrive_c_windows_temp"));

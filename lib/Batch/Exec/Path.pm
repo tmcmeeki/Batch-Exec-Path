@@ -6,7 +6,7 @@ Batch::Exec::Path cross-platform path handling for the batch executive.
 
 =head1 AUTHOR
 
-Copyright (C) 2021  B<Tom McMeekin> tmcmeeki@cpan.org
+Copyright (C) 2022  B<Tom McMeekin> tmcmeeki@cpan.org
 
 =head1 SYNOPSIS
 
@@ -40,7 +40,7 @@ Some notes around how particular platforms present directories:
 
 	Conventional user directories under /home	(Linux-like)
 
-Note that the username in hybrid deployments may not related to that of the 
+Note that the username in hybrid deployments may not relate to that of the 
 host platform, so this can be challenging for establishing a user's "home"
 directory.  In addition, conventions above can be overridden by administrators.
 
@@ -48,7 +48,7 @@ Network fileshares are parsed according to protocol conventions, e.g.
 
 	SMB / CIFS	//server/share	(Linux-like platforms)
 	SMB / CIFS	\\server\share	(Windows)
-	NFS		server:/share	(Linux-like platforms)
+	NFS		server:/share	(all platforms)
 
 Currently the NFS convention is only supported for symbolic hostnames
 (as opposed to IP addresses).
@@ -57,10 +57,50 @@ Currently the NFS convention is only supported for symbolic hostnames
 
 =over 4
 
-=item OBJ->behaviour(EXPR)
+=item OBJ->abs
 
-Set the path parsing behaviour to one of "w" (Windows-like) or "u" (Unix-like).
+Boolean which indicates an absolute path.
+Reinitialised and conditionally set by the B<parse> method.
+No default applies.
+Subsequently utilised by the B<joiner> method.
+
+=item OBJ->behaviour
+
+Set or get the path rendering behaviour to one of "w" (Windows-like) or
+"u" (Unix-like).
 A platform-dependent default applies.
+
+=item OBJ->deu
+
+=item OBJ->dew
+
+The component delimeters for a pathname, respectively forward-slash for unices
+and backslash for MSWin platforms.
+Both get or set operations for which defaults apply.
+See the correlating attribute B<reu>.
+
+=item OBJ->drive
+
+Boolean which indicates an absolute path.
+Reinitialised and conditionally set by the B<parse> method.
+No default applies.
+Subsequently utilised by the B<joiner> method.
+
+=item OBJ->folders
+
+The list of folders in a local filesystem hierarchy.
+Reinitialised and conditionally set by the B<parse> method.
+Defaults to an empty array.
+Subsequently utilised by the B<joiner> method.
+
+=item OBJ->reu
+
+=item OBJ->rew
+
+The regular expressions which separate components of a pathname,
+respectively for unices and MSWin platforms.
+Both get or set operations for which defaults apply.
+See the correlating attribute B<deu>.
 
 =item OBJ->shellify(BOOLEAN)
 
@@ -68,10 +108,12 @@ Useful when converting paths for shell-calls to Windows-like interpreters
 backslashes are appropriately delimeted, e.g. \ becomes \\.
 Default is 0 (off = do not shellify).
 
-=item OBJ->winpath(PATH)
+=item OBJ->volumes
 
-Converts a Cygwin-like path to a DOS/Windows-style path,
-e.g. /cygdrive/c/Windows becomes c:/Windows.
+The list of components comprising an addressable local or networked filesytem.
+Reinitialised and conditionally set by the B<parse> method.
+Defaults to an empty array.
+Subsequently utilised by the B<joiner> method.
 
 =back
 
@@ -133,29 +175,28 @@ our $VERSION = '0.001';
 my %_attribute = (	# _attributes are restricted; no direct get/set
 	_home => undef,		# a reliable version of user's home directory
 	_lexer => undef,
-#	log => get_logger("Batch::Exec::Path"),
+	abs => undef,
 	behaviour => undef,	# platform-dependent default, one of: w, u.
 	deu => STR_DELIM_U,
 	dew => STR_DELIM_W,
-	raw => undef,		# the raw path passed into a parse function
-	res => RE_SHELLIFY,
-	reu => RE_DELIM_U,
-	rew => RE_DELIM_W,
-	root => undef,		# placeholder for root component
-	shellify => 0,		# converts \ to \\ for DOS-like shell exits
-	msg => STR_PREMATURE,
-	unknown => STR_UNKNOWN,	# stringy failsafe
-	abs => undef,
 	drive => undef,
 	folders => [],
 	homed => undef,
 	hybrid => undef,
 	letter => undef,
+	mount => undef,
+	msg => STR_PREMATURE,
+	raw => undef,		# the raw path passed into a parse function
+	res => RE_SHELLIFY,
+	reu => RE_DELIM_U,
+	rew => RE_DELIM_W,
+	root => undef,		# placeholder for root component
 	server => undef,
+	shellify => 0,		# converts \ to \\ for DOS-like shell exits
 	type => undef,
 	unc => undef,
+	unknown => STR_UNKNOWN,	# stringy failsafe
 	volumes => [],
-	mount => undef,
 );
 
 #sub INIT { };
@@ -390,8 +431,8 @@ the B<parse> method has already been called.
 
 sub joiner {
 	my $self = shift;
-	$self->log->logconfess($self->msg) unless ( defined($self->abs)
-		&& defined($self->type)
+	$self->log->logconfess($self->msg) unless ( defined($self->type)
+		&& defined($self->abs)
 		&& defined($self->unc)
 	);
 	$self->log->debug(sprintf "abs [%d]", $self->abs);
@@ -589,7 +630,8 @@ sub lexer {
 
 		$drive;
 	},
-	qw(NET_HOST	\w+:), sub {	# for nfs format, i.e. server:
+	qw(NET_HOST	[^\s:]+:), sub {	# for nfs format, i.e. server:
+#	qw(NET_HOST	[\w\.\d\-_]+:+), sub {	# for nfs format, i.e. server:
 
 		my $server = $self->trim($_[1], qr/:$/);
 
@@ -632,18 +674,34 @@ sub lexer {
 
 		my $folder = $_[1];
 
+		$self->log->debug("folder [$folder]");
+
 		$self->homed(1) if ($folder =~ /^home$/i);
 		$self->homed(1) if ($folder =~ /^Users$/);
 
 		$self->default('abs', 0);
 
-		if (scalar(@{ $self->folders }) == 1) {
+		my $fpf = 1; if (scalar(@{ $self->folders }) == 1) {
 
-			$self->drive_letter($folder)
-				if ($self->folders->[0] =~ /^mnt$/i);
+			my $parent = $self->folders->[0];
+			my $sre = sprintf "(%s)", join('|', DN_MOUNT_WSL, DN_MOUNT_CYG);
+			$self->log->debug("sre [$sre]");
+
+			if ($parent =~ qr/^$sre$/) {
+
+				$self->drive_letter($folder);
+
+				shift @{ $self->folders };
+
+				push @{ $self->volumes }, $parent;
+				push @{ $self->volumes }, $folder;
+
+				$fpf = 0;
+
+				$self->hybrid(1);
+			}
 		}
-
-		push @{ $self->folders }, $folder;
+		push @{ $self->folders }, $folder if ($fpf);
 
 		$self->dump_struct;
 

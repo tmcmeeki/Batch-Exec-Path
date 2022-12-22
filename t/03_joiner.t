@@ -23,9 +23,12 @@ my $log = get_logger(__FILE__);
 
 
 # -------- main --------
-$harn->planned(96);
+$harn->planned(136);
 
-my $o1 = Batch::Exec::Path->new;
+my $o1 = Batch::Exec::Path->new('behaviour' => 'u');
+isa_ok($o1, $harn->this,		$harn->cond("class check"));
+
+my $o2 = Batch::Exec::Path->new('behaviour' => 'w');
 isa_ok($o1, $harn->this,		$harn->cond("class check"));
 
 
@@ -36,40 +39,38 @@ SKIP: {
 	is($o1->joiner, "/",		$harn->cond("joiner fatal"));
 }
 
-my $count = 0;
-for my $pni ($harn->valid_paths) {
+for my $rh ($harn->linux) {
 
-	$log->debug("pni [$pni]");
+	my ($pni) = $harn->select($rh, qw/ path /);
 
 	ok($o1->parse($pni) > 1,	$harn->cond("parse"));
+	is($o1->behaviour, 'u',		$harn->cond("behaviour ux"));
 
 	my $pno = $o1->joiner;
 
+	$log->debug("pni [$pni]");
+
 	ok(length($pno),		$harn->cond("joiner length"));
+	is($pno, $pni,			$harn->cond("joiner match lux"));
 
-	if ($o1->type eq 'win' || $o1->type eq 'wsl') {
+#	last if ($pni =~ /temp07/);
+#	last if ($pni =~ /Temp03a/);
+}
 
-		next if ($pno =~ /(Temp01a|Temp05|temp07)/);
 
-		my $wpn = $harn->fs2bs($pno);
+for my $rh ($harn->windows) {
 
-		$log->debug("pni [$pni] wpn [$wpn]");
+	my ($pni) = $harn->select($rh, qw/ path /);
 
-		is($wpn, $pni,		$harn->cond("joiner match win"));
-	} else {
+	ok($o2->parse($pni) > 1,	$harn->cond("parse"));
+	is($o2->behaviour, 'w',		$harn->cond("behaviour win"));
 
-		$log->debug("pni [$pni] pno [$pno]");
+	my $pno = $o2->joiner;
 
-		is($pno, $pni,		$harn->cond("joiner match lux"));
-	}
+	$log->debug("pni [$pni]");
 
-#	last if (++$count > 15);
-#	last if ($pni =~ /xxx/);
-#	last if ($pni =~ /Temp03b/);
-#	last if ($pni =~ /temp06/);
-#	last if ($pni =~ /Temp05/);
-#	last if ($pni =~ /Temp01/);
-#	last if ($pni =~ /Ubuntu/);
+	ok(length($pno),		$harn->cond("joiner length"));
+	is($pno, $pni,			$harn->cond("joiner match win"));
 }
 
 

@@ -258,6 +258,12 @@ sub parse_me {
 	$self->_path([ @path ]);
 }
 
+=item OBJ->all([FIELD])
+
+Select every record, and if FIELD is specified, just return an array of
+values for just that key across the whole dataset.
+
+=cut
 
 sub all {
 	my $self = shift;
@@ -299,14 +305,16 @@ sub filter {
 	my $self = shift;
 	my $field = shift;
 	my $wanted = shift;
+	my $rap = shift;
 	confess "SYNTAX: filter(EXPR, EXPR)" unless (
 		defined ($field) && defined ($field));
 
 	confess "FATAL: no paths defined" unless defined($self->_path);
 
 #	my @match; while (my ($pn, $status) = each %{ $self->_path }) {
+	my @superset = (defined $rap) ? @$rap : $self->all;
 
-	my @match; for ($self->all) {
+	my @match; for (@superset) {
 
 		my $value = $self->select($_, $field);
 
@@ -325,10 +333,28 @@ sub invalid {
 }
 
 
+sub linux {
+	my $self = shift;
+
+	my @valid = $self->filter("valid", 1); # valid flag is ON
+
+	return $self->filter("type", "l", \@valid); # valid flag is ON
+}
+
+
 sub valid {
 	my $self = shift;
 
 	return $self->filter("valid", 1); # valid flag is ON
+}
+
+
+sub windows {
+	my $self = shift;
+
+	my @valid = $self->filter("valid", 1); # valid flag is ON
+
+	return $self->filter("type", "w", \@valid); # valid flag is ON
 }
 
 
@@ -412,41 +438,41 @@ DESTROY {
 
 __END__
 
-#valid=abs=volume=root=levels=path
-1=1=none=/=0=/
-1=1=none=/=0=.
-1=1=none=/=0=..
-1=1=none=/=1=/tmp
-1=1=none=/=2=/root/xxx
-1=1=none=/=1=.
-1=0=none=none=1=foo
-1=0=none=none=2=foo/bar
-1=0=none=none=1=./bar
-1=0=none=none=2=./foo/bar
-1=1=none=none=1=~
-1=1=none=none=1=~/tmp
-1=1=hostname=/=1=//hostname/xxx
-1=1=server=/=1=//server/Temp03b
-1=1=c=/=2=/cygdrive/c/windows/temp08
-1=1=c=/=1=/cygdrive/c/xxx
-1=1=d=/=2=/cygdrive/d/Users/abc
-1=1=none=/=2=/dir/xxx
-1=1=c=/=2=/mnt/c/windows/temp06
-1=1=d=/=2=/mnt/d/Users/abc
-1=1=C=\=2=C:\Users\abc
-1=1=D=\=2=D:\Users\abc
-1=1=C=/=1=C:/Temp01a
-1=1=C=\=1=C:\Temp01b
-1=1=server=\=1=\\\\server\\Temp05
-1=1=hostname=\=1=\\hostname\xxx
-1=1=server=\=1=\\server\Temp03a
-0=1=server=\=1=\\server\\Temp04
-1=1=wsl$=\=3=\\wsl$\Ubuntu\home\tomby
-1=1=none=\=2=\mnt\c\window\temp07
-0=1=9=\=1=/cygdrive/9/hello.txt
-0=1=1=\=1=1:\hello.txt
-0=1=this=\=3=\\\\\\\\this\\\is\\wierd\\\\now
-1=1=none=\=1=\server\Temp02
-1=1=none=none=4=this/path has/some spaces/and'apostrophe
-1=1=server=none=2=nfshost:/some/path
-#valid=abs=volume=root=levels=path
+#type=valid=abs=volume=root=levels=path
+l=1=1=none=/=0=/
+l=1=1=none=/=0=.
+l=1=1=none=/=0=..
+l=1=1=none=/=1=/tmp
+l=1=1=none=/=2=/root/xxx
+l=1=1=none=/=1=.
+l=1=0=none=none=1=foo
+l=1=0=none=none=2=foo/bar
+l=1=0=none=none=1=./bar
+l=1=0=none=none=2=./foo/bar
+l=1=1=none=none=1=~
+l=1=1=none=none=1=~/tmp
+l=1=1=hostname=/=1=//hostname/xxx
+l=1=1=server=/=1=//server/Temp03b
+l=1=1=c=/=2=/cygdrive/c/windows/temp08
+l=1=1=c=/=1=/cygdrive/c/xxx
+l=1=1=d=/=2=/cygdrive/d/Users/abc
+l=1=1=none=/=2=/dir/xxx
+l=1=1=c=/=2=/mnt/c/windows/temp06
+l=1=1=d=/=2=/mnt/d/Users/abc
+w=1=1=C=\=2=C:\Users\abc
+w=1=1=D=\=2=D:\Users\abc
+l=1=1=C=/=1=C:/Temp01a
+w=1=1=C=\=1=C:\Temp01b
+w=1=1=server=\=1=\\\\server\\Temp05
+w=1=1=hostname=\=1=\\hostname\xxx
+w=1=1=server=\=1=\\server\Temp03a
+w=0=1=server=\=1=\\server\\Temp04
+w=1=1=wsl$=\=3=\\wsl$\Ubuntu\home\tomby
+w=1=1=none=\=2=\mnt\c\window\temp07
+l=0=1=9=\=1=/cygdrive/9/hello.txt
+w=0=1=1=\=1=1:\hello.txt
+w=0=1=this=\=3=\\\\\\\\this\\\is\\wierd\\\\now
+w=1=1=none=\=1=\server\Temp02
+l=1=1=none=none=4=this/path has/some spaces/and'apostrophe
+l=1=1=nfshost1=none=2=nfshost1:/some/path
+l=1=1=192.168.10.15=none=2=192.168.10.15:/some/path
