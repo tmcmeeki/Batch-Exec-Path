@@ -133,22 +133,21 @@ use Data::Dumper;
 #require File::Spec::Win32;
 require File::HomeDir;
 #require Path::Class;
-require Path::Tiny;
+#require Path::Tiny;
 use Parse::Lex;
 
 #use Log::Log4perl qw(:levels);	# debugging
 
 
 # --- package constants ---
-use constant ENV_WSL_DISTRO => $ENV{'WSL_DISTRO_NAME'};
-
 use constant DN_MOUNT_WSL => "mnt";
 use constant DN_MOUNT_CYG => "cygdrive";
 
 use constant DN_ROOT_ALL => '/';	# the default root
 use constant DN_ROOT_WSL => 'wsl$';	# this is a WSL location only
 					# e.g. \\wsl$\Ubuntu\home (from DOS)
-use constant FN_HOME => "home";
+use constant FN_HOME => "home";	#	indicates a Linux-like home
+use constant FN_USER => "Users";	# indicates a Windows-like home
 
 use constant RE_DELIM_U => qr[\/];	# the forward-slash regexp for unix
 use constant RE_DELIM_W => qr[\\];	# the back-slash regexp for windows
@@ -276,6 +275,29 @@ sub new {
 
 =over 4
 
+=item OBJ->cat_re([BOOLEAN], EXPR, ...)
+
+Concatenate (join) the EXPR parameters passed to create a REGEXP.  
+The BOOLEAN flag will cause the REGEXP to be book-ended as a start/finish
+expression.
+
+=cut
+
+sub cat_re {
+	my $self = shift;
+	my $f_bookend = shift; $f_bookend = 1 unless defined($f_bookend);
+	confess "SYNTAX cat_re([BOOLEAN], EXPR)" unless (
+		defined($f_bookend) && @_);
+
+	my $str = sprintf "(%s)", join('|', @_);
+
+	my $regexp = ($f_bookend) ?  qr/^$str$/ : qr/$str/;
+
+	$self->log->debug("str [$str] regexp [$regexp]");
+	
+	return $regexp;
+}
+
 =item OBJ->connector
 
 Return the connector string relevant to the specified behaviour.
@@ -286,7 +308,9 @@ This is the correlating method to B<separator>.
 sub connector {
 	my $self = shift;
 
-	return $self->deu if ($self->behaviour eq 'u' || $self->type eq 'nfs');
+	my $type = (defined $self->type) ? $self->type : $self->unknown;
+
+	return $self->deu if ($self->behaviour eq 'u' || $type eq 'nfs');
 
 	return $self->dew;
 }
@@ -361,6 +385,53 @@ sub drive_letter {
 	$self->letter($letter);
 
 	return $letter;
+}
+
+=item OBJ->escape([METHOD])
+
+Convert a path into a format which can traverse a shell call.  Utilise the
+method parameter to control the way this is done: 'b' back-slash (\), the 
+default, or 'q' double-quote (") or 's' single-quote (').
+
+Will call the B<joiner> method prior to the call, so therefore assumes a
+pre-requisite B<parse>.
+
+=cut
+
+sub escape {
+	my $self = shift;
+#	if (@_) { $self->dummy(shift) };
+	my $method = shift ; $method = 'b' unless defined($method);
+	$self->log->logconfess($self->msg) unless defined($self->type);
+	confess "SYNTAX escape(METHOD)" unless defined($method);
+
+	my $pni = $self->joiner;
+
+	my $pno; if ($method eq 'q') {
+
+		$pno = "\"$pni\"";
+
+	} elsif ($method eq 's') {
+
+		$pno = "\'$pni\'";
+
+	} elsif ($method eq 'b') {
+
+		$pno = $pni;
+
+		my $de = $self->dew;
+		my $res = $self->res;
+
+		$pno =~ s/$res/$de/g;
+
+#		$pno =~ s/$res/\\$&/g;	# slash all occurrences within
+
+	} else {
+		$self->cough("invalid method [$method]");
+	}
+	$self->log->debug("pni [$pni] pno [$pno]");
+
+	return $pno;
 }
 
 =item OBJ->extant(PATH, [TYPE])
@@ -510,6 +581,8 @@ sub dump_struct {
 Create and return a lexer object with a path parsing text.  Only one parser
 is maintained for the object, and is re-used on subsequent calls (which will
 also handle a reset of the parser).
+
+For reference, valid pathnames are discussed here:  https://stackoverflow.com/questions/1976007/what-characters-are-forbidden-in-windows-and-linux-directory-names
 
 =cut
 
@@ -676,18 +749,18 @@ sub lexer {
 
 		$self->log->debug("folder [$folder]");
 
-		$self->homed(1) if ($folder =~ /^home$/i);
-		$self->homed(1) if ($folder =~ /^Users$/);
+		$self->homed(1)
+			if ($folder =~ $self->cat_re(1, FN_HOME, FN_USER));
 
 		$self->default('abs', 0);
 
 		my $fpf = 1; if (scalar(@{ $self->folders }) == 1) {
 
 			my $parent = $self->folders->[0];
-			my $sre = sprintf "(%s)", join('|', DN_MOUNT_WSL, DN_MOUNT_CYG);
-			$self->log->debug("sre [$sre]");
 
-			if ($parent =~ qr/^$sre$/) {
+			my $re = $self->cat_re(1, DN_MOUNT_WSL, DN_MOUNT_CYG);
+
+			if ($parent =~ $re) {
 
 				$self->drive_letter($folder);
 
@@ -785,38 +858,6 @@ sub separator {
 	return $self->rew;
 }
 
-=item OBJ->slash([EXPR])
-
-Based on expected behaviour optionally convert / to \\
-
-=cut
-
-sub slash {
-	my $self = shift;
-#	if (@_) { $self->converted(shift) };
-#	confess "SYNTAX slash(EXPR)" unless defined($self->converted);
-
-	my $pni;# = $self->converted;
-
-	my $pno = $pni;
-	my $de = ($self->behaviour eq 'u') ?  $self->deu : $self->dew;
-	my $reu = $self->reu;
-
-	$pno =~ s/$reu/$de/g;
-
-	$self->log->debug("pni [$pni] pno [$pno]");
-
-	return $pno unless ($self->shellify);
-
-	my $res = $self->res;
-
-	$pno =~ s/$res/\\$&/g;	# slash all occurrences within
-
-	$self->log->debug("slashed pno [$pno]");
-
-	return $pno;
-}
-
 =item OBJ->tld([TYPE], [SERVER])
 
 Return the top-level directory component for a hybrid OS, e.g. cygwin or mnt.
@@ -848,7 +889,7 @@ sub tld {
 			$tld = $hostpath;
 		} else {
 			if ($self->type eq 'wsl') {
-				$tld = join($self->deu, $self->deu, $self->_wslroot);
+				$tld = join($self->deu, $self->deu, $self->wslroot);
 			} else {
 				$tld = $self->deu . DN_MOUNT_WSL;
 			}
@@ -859,7 +900,7 @@ sub tld {
 			$tld = $hostpath;
 		} else {
 			if ($self->type eq 'wsl') {
-				$tld = join($self->deu, $self->deu, $self->_wslroot);
+				$tld = join($self->deu, $self->deu, $self->wslroot);
 			}
 		}
 	} else {
@@ -895,7 +936,7 @@ sub volume {
 
 		if ($self->type eq 'wsl') {
 
-			$volume = join($self->deu, $self->deu, $self->_wslroot);
+			$volume = join($self->deu, $self->deu, $self->wslroot);
 
 		} else {
 			if (defined $self->server) {
@@ -911,7 +952,7 @@ sub volume {
 
 		if ($self->on_wsl && $self->type eq 'wsl') {
 
-			$volume = join($self->deu, $self->deu, $self->_wslroot);
+			$volume = join($self->deu, $self->deu, $self->wslroot);
 
 		} else {
 			if (defined $self->letter) {
@@ -971,33 +1012,35 @@ sub winuser {
 =item OBJ->wslhome
 
 Determine the host location of the WSL user home.
-Returns undef if the current process is not executing within a WSL context.
 
 =cut
 
-sub wslhome {	# determine the host location of the WSL user home
+sub wslhome {
 	my $self = shift;
 
-	return undef unless ($self->like_windows);
+#	return undef unless ($self->like_windows);
 
-	my $root = $self->_wslroot;
+	my $root = $self->wslroot;
 
 	return undef unless defined($root);
 
-	my $home = $self->joiner($self->_wslroot, FN_HOME);
+	push @{ $self->folders }, FN_HOME;
 
-	return undef unless(-d $home);
+	my $home = $self->joiner;
 
-	return $self->slash($home);
+#	return undef unless(-d $home);
+
+#	return $self->slash($home);
+	return $home;
 }
 
-=item OBJ->_wslroot
+=item OBJ->wslroot
 
-INTERNAL ROUTINE ONLY.  Determine the host location of the WSL distro root.
+Determine the host location of the WSL distro root.
 
 =cut
 
-sub _wslroot {
+sub wslroot {
 #	note that this only has relevance on a Windows-like system, but
 #	not really within the WSL itself, so the latter is contrived.
 #	this routine generates a likely WSL root, regardless of its existence.
@@ -1013,27 +1056,11 @@ sub _wslroot {
 	$self->log->debug(sprintf "dist [%s]", $dist);
 	$self->log->debug(sprintf "DN_ROOT_WSL [%s]", DN_ROOT_WSL);
 
-	my $root = join($self->deu, DN_ROOT_WSL, $dist);
+	my $root = join('', $self->dew, $self->dew, DN_ROOT_WSL, $self->dew, $dist);
 
-	$self->log->debug(sprintf "root [%s]", $root);
+	$self->parse($root);
 
-	return $root;
-}
-
-=item OBJ->wslroot
-
-Determine the host's directory location of the current WSL distribution root.
-
-=cut
-
-sub wslroot {	# determine the host location of the WSL distro root
-	my $self = shift;
-
-	my $root = $self->_wslroot;
-
-	return undef unless(-d $root);
-
-	return $self->slash($root);
+	return $self->joiner;
 }
 
 #sub END { }

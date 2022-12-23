@@ -20,7 +20,7 @@ use Harness;
 #BEGIN { use_ok('Batch::Exec::Path') };
 my $harn = Harness->new('Batch::Exec::Path');
 
-$harn->planned(74);
+$harn->planned(39);
 use_ok($harn->this);
 #require_ok($harn->this);
 
@@ -36,10 +36,10 @@ my $log = get_logger(__FILE__);
 
 
 # -------- main --------
-my $os0 = Batch::Exec::Path->new('shellify' => 0);
+my $os0 = Batch::Exec::Path->new('behaviour' => 'w');
 isa_ok($os0, $harn->this,		$harn->cond("class check"));
 
-my $os1 = Batch::Exec::Path->new('shellify' => 1);
+my $os1 = Batch::Exec::Path->new('behaviour' => 'u');
 isa_ok($os1, $harn->this,		$harn->cond("class check"));
 
 my $os2 = Batch::Exec::Path->new;
@@ -47,6 +47,35 @@ isa_ok($os2, $harn->this,		$harn->cond("class check"));
 
 my $os3 = Batch::Exec::Path->new;
 isa_ok($os2, $harn->this,		$harn->cond("class check"));
+
+
+# -------- cat_re --------
+SKIP: {
+	skip "cat_re fatal", 2;
+
+	is($os0->cat_re(undef), "xx",	$harn->cond("cat_re fatal"));
+	is($os0->cat_re, "xx",		$harn->cond("cat_re fatal"));
+}
+isa_ok($os0->cat_re(1, "xx"), "Regexp",	$harn->cond("cat_re simple"));
+ok(length($os0->cat_re(1, "xx")) > length($os0->cat_re(0, "xx")),	$harn->cond("cat_re length"));
+
+isa_ok($os0->cat_re(1, "y", "z"), "Regexp",	$harn->cond("cat_re simple"));
+ok(length($os0->cat_re(1, "y", "z")) > length($os0->cat_re(0, "y", "z")),	$harn->cond("cat_re length"));
+
+
+# -------- connector and separator --------
+$harn->cwul($os0, qw[ connector  \\  \\  \\  \\  ]);
+$harn->cwul($os1, qw[ connector  /  /  /  /  ]);
+
+is($os0->type('nfs'), 'nfs',			$harn->cond("connector type"));
+$harn->cwul($os0, qw[ connector  /  /  /  /  ]);
+$harn->cwul($os1, qw[ connector  /  /  /  /  ]);
+
+my $re_win = qr[\\];
+$harn->cwul($os0, "separator", $re_win, $re_win, $re_win, $re_win);
+
+my $re_lux = qr[/];
+$harn->cwul($os1, "separator", $re_lux, $re_lux, $re_lux, $re_lux);
 
 
 # -------- drive_letter --------
@@ -60,110 +89,13 @@ is($os0->drive_letter('wsl$'), 'wsl$',	$harn->cond("drive_letter bucks"));
 is($os0->drive, 'wsl$',			$harn->cond("drive bucks"));
 
 
-# -------- slash and shellify: unix behaviour --------
-is($os0->shellify, 0,			$harn->cond("shellify off"));
-is($os1->shellify, 1,			$harn->cond("shellify on"));
-
-$os0->behaviour('u');
-$os1->behaviour('u');
-is($os0->behaviour, 'u',		$harn->cond("behaviour unix"));
-is($os0->behaviour, $os1->behaviour,	$harn->cond("behaviour match"));
-
-my %uxp = (	# first = path (unmodified), second = slash result
-  'a' => { 'base' => 'foo',		'us' => 'foo',
-					'wd' => 'foo',
-					'ws' => 'foo',
-	},
-  'b' => { 'base' => 'foo bar',		'us' => q{foo\ bar},
-					'wd' => 'foo bar',
-					'ws' => q{foo\ bar},
-	},
-  'c' => { 'base' => 'foo/bar',		'us' => q{foo\/bar},
-					'wd' => q{foo\bar},
-					'ws' => q{foo\\bar},
-	},
-  'd' => { 'base' => '/foo/bar',	'us' => q{\/foo\/bar},
-					'wd' => q{\foo\bar},
-					'ws' => q{\\foo\\bar},
-	},
-  'e' => { 'base' => '/foo/bar/',	'us' => q{\/foo\/bar\/},
-#					'wd' => q{\foo\bar\},
-# these are causing syntax errors so the windows tests are delegated to "Harness"
-					'ws' => q{\\foo\\bar\\},
-	},
-  'f' => { 'base' => q{foo'bar},	'us' => q{foo\'bar},
-					'wd' => q{foo'bar},
-					'ws' => q{foo\'bar},
-	},
-  'g' => { 'base' => '/fu/man/chu',	'us' => q{\/fu\/man\/chu},
-					'wd' => q{\fu\man/chu},
-					'ws' => q{\\fu\\man\\chu},
-	},
-  'h' => { 'base' => ' fu man chu ',	'us' => q{\ fu\ man\ chu\ },
-					'wd' => ' fu man chu ',
-					'ws' => q{\ fu\ man\ chu\ },
-	},
-);
-
-#while (my ($cond, $rh) = each %uxp) {
-for my $cond (sort keys %uxp) {
-	my $rh = $uxp{$cond};
-	my $base = $rh->{'base'};
-	my $shell = $rh->{'us'};
-
-	SKIP: {
-		skip "slash yet to be tested", 2;
-
-		is($os0->slash($base), $base,	$harn->cond("slash shellify OFF unix cond=$cond"));
-
-		is($os1->slash($base), $shell,	$harn->cond("slash shellify ON unix cond=$cond"));
-	}
-}
-
-
-# -------- slash and shellify: windows behaviour --------
-$os0->behaviour('w');
-$os1->behaviour('w');
-is($os0->behaviour, 'w',		$harn->cond("behaviour wind"));
-is($os0->behaviour, $os1->behaviour,	$harn->cond("behaviour match"));
-
-for my $cond (sort keys %uxp) {
-
-	my $rh = $uxp{$cond};
-	my $base = $rh->{'base'};
-	my $wd = $rh->{'wd'};
-	my $ws = $rh->{'ws'};
-
-#	wd and ws testing does not naturally parse correctly so
-#	have delegate to the t/Harness.pm module
-
-	my $hd = $harn->fs2bs($base);
-	my $hs = $harn->fs2bs($base, 1);
-
-	is(length($hd), length($base),	$harn->cond("fs2bs length"));
-
-	SKIP: {
-		skip "slash yet to be tested", 2;
-
-		is($os0->slash($base), $hd,	$harn->cond("slash shellify OFF hd cond=$cond"));
-
-		is($os1->slash($base), $hs,	$harn->cond("slash shellify ON hs cond=$cond"));
-	}
-}
-
-
 # -------- tld --------
 is($os2->type("win"), "win",		$harn->cond("type override"));
 $harn->cwul($os2, qw[  tld  /cygdrive  ], "", "/mnt",  "");
 
 is($os2->type("wsl"), "wsl",		$harn->cond("type override"));
 $harn->cwul($os2, qw[  tld  /cygdrive  //wsl$/Ubuntu  //wsl$/Ubuntu], "");
-
-
-# -------- _wslroot --------
-my $re_wsl = qr[wsl\$\/\w+];
-like($os2->_wslroot, qr/.+/,		$harn->cond("_wslroot has value"));
-$harn->cwul($os2, "_wslroot", $re_wsl, $re_wsl, $re_wsl, $re_wsl);
+exit -1;
 
 
 #-------- winuser --------

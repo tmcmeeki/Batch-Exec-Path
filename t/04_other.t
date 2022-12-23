@@ -6,230 +6,143 @@ use strict;
 
 #use Data::Compare;
 use Data::Dumper;
-use Log::Log4perl qw/ :easy /; Log::Log4perl->easy_init($ERROR);
-#use Logfer qw/ :all /;
-use Test::More tests => 45;
-
-BEGIN { use_ok('Batch::Exec::Path') };
+#use Log::Log4perl qw/ :easy /; Log::Log4perl->easy_init($ERROR);
+use Logfer qw/ :all /;
+use Test::More; # tests => 45;
+use lib 't';
+use Harness;
 
 
 # -------- constants --------
-use constant RE_PATH_DELIM => qr/[\\\/]+/;
 
 
 # -------- global variables --------
+my $harn = Harness->new('Batch::Exec::Path');
+use_ok($harn->this);
 my $log = get_logger(__FILE__);
 
 
 # -------- sub-routines --------
-sub check_equiv {
-	my ($s1, $s2, $cn, $cycle) = @_;
-	my $rec = qr/(cygdrive|mnt)/i;
-	my $res = RE_PATH_DELIM;
-
-	$cycle = "na" unless defined($cycle);
-	my $condition = sprintf('%s compare [cycle=%s]', $cn, $cycle);
-
-	$s1 =~ s/://;
-	my @a1 = split($res, lc $s1);
-	my $n1 = scalar(@a1);
-	$log->debug(sprintf "n1 [$n1] s1 [$s1] a1 [%s]", Dumper(\@a1));
-
-	$s2 =~ s/://;
-	my @a2 = split($res, lc $s2);
-	my $n2 = scalar(@a2);
-	$log->debug(sprintf "n2 [$n2] s2 [$s2] a2 [%s]", Dumper(\@a2));
-
-	if ($n1 < $n2) {
-		for (my $i = 0; $i < ($n2 - $n1); $i++) { shift @a2; }
-		$log->debug(sprintf "s2 [$s2] a2 [%s]", Dumper(\@a2));
-
-	} elsif ($n1 > $n2) {
-
-		for (my $i = 0; $i < ($n1 - $n2); $i++) { shift @a1; }
-		$log->debug(sprintf "s1 [$s1] a1 [%s]", Dumper(\@a1));
-	}
-
-	my $diff = new Data::Compare;
-
-	my $result = $diff->Cmp(\@a1, \@a2);
-
-	$log->debug("result [$result]");
-
-	is($result, 1, $condition);
-}
-
-
 # -------- main --------
-my $cycle = 1;
+$harn->planned(136);
+
 
 my $o1 = Batch::Exec::Path->new;
-isa_ok($o1, "Batch::Exec::Path",	"class check $cycle"); $cycle++;
+isa_ok($o1, "Batch::Exec::Path",	$harn->cond("class check"));
 
-my $o2 = Batch::Exec::Path->new('shellify' => 1);
-isa_ok($o2, "Batch::Exec::Path",	"class check $cycle"); $cycle++;
+#my $o2 = Batch::Exec::Path->new('shellify' => 1);
+#isa_ok($o2, "Batch::Exec::Path",	$harn->cond("class check"));
 
 
-# ---- splitdir basic ----
-my $dn_winc = 'C:\Users\abc';
-my $dn_wind = 'D:\Users\abc';
-my $dn_cyg = '/cygdrive/d/Users/abc';
-my $dn_wsl = '/mnt/d/Users/abc';
+# -------- escape --------
+is($os0->shellify, 0,			$harn->cond("shellify off"));
+is($os1->shellify, 1,			$harn->cond("shellify on"));
 
-is_deeply([$o1->splitdir($dn_winc)], [qw/ C: Users abc/], "splitdir 1");
-is_deeply([$o1->splitdir($dn_wind)], [qw/ D: Users abc/], "splitdir 2");
-is_deeply([$o1->splitdir($dn_cyg)], ["", qw/ cygdrive d Users abc/], "splitdir 3");
-is_deeply([$o1->splitdir($dn_wsl)], ["", qw/ mnt d Users abc/], "splitdir 4");
+$os0->behaviour('u');
+$os1->behaviour('u');
+is($os0->behaviour, 'u',		$harn->cond("behaviour unix"));
+is($os0->behaviour, $os1->behaviour,	$harn->cond("behaviour match"));
+
+my %uxp = (	# first = path (unmodified), second = escape result
+  'a' => { 'base' => 'foo',		'us' => 'foo',
+					'wd' => 'foo',
+					'ws' => 'foo',
+	},
+  'b' => { 'base' => 'foo bar',		'us' => q{foo\ bar},
+					'wd' => 'foo bar',
+					'ws' => q{foo\ bar},
+	},
+  'c' => { 'base' => 'foo/bar',		'us' => q{foo\/bar},
+					'wd' => q{foo\bar},
+					'ws' => q{foo\\bar},
+	},
+  'd' => { 'base' => '/foo/bar',	'us' => q{\/foo\/bar},
+					'wd' => q{\foo\bar},
+					'ws' => q{\\foo\\bar},
+	},
+  'e' => { 'base' => '/foo/bar/',	'us' => q{\/foo\/bar\/},
+#					'wd' => q{\foo\bar\},
+# these are causing syntax errors so the windows tests are delegated to "Harness"
+					'ws' => q{\\foo\\bar\\},
+	},
+  'f' => { 'base' => q{foo'bar},	'us' => q{foo\'bar},
+					'wd' => q{foo'bar},
+					'ws' => q{foo\'bar},
+	},
+  'g' => { 'base' => '/fu/man/chu',	'us' => q{\/fu\/man\/chu},
+					'wd' => q{\fu\man/chu},
+					'ws' => q{\\fu\\man\\chu},
+	},
+  'h' => { 'base' => ' fu man chu ',	'us' => q{\ fu\ man\ chu\ },
+					'wd' => ' fu man chu ',
+					'ws' => q{\ fu\ man\ chu\ },
+	},
+);
+
+#while (my ($cond, $rh) = each %uxp) {
+for my $cond (sort keys %uxp) {
+	my $rh = $uxp{$cond};
+	my $base = $rh->{'base'};
+	my $shell = $rh->{'us'};
+
+#	SKIP: {
+#		skip "escape yet to be tested", 2;
+
+		is($os0->escape($base), $base,	$harn->cond("escape shellify OFF unix cond=$cond"));
+
+		is($os1->escape($base), $shell,	$harn->cond("escape shellify ON unix cond=$cond"));
+#	}
+}
 exit -1;
 
 
-# ---- path basic ----
-my $re_cyg = qr/cyg.+users.+abc/i;
-my $re_win = qr/c.+users.+abc/i;
-my $re_wsl = qr/mnt.+users.+abc/i;
-if ($o1->on_cygwin) {
-	is($o1->tld, "cygdrive",			"tld cygdrive");
-	like($o1->path($dn_winc), $re_cyg,	"path path");
-	like($o1->path($dn_wind), qr/cyg.+d.+abc/,	"path drive");
+# -------- escape and shellify: windows behaviour --------
+$os0->behaviour('w');
+$os1->behaviour('w');
+is($os0->behaviour, 'w',		$harn->cond("behaviour wind"));
+is($os0->behaviour, $os1->behaviour,	$harn->cond("behaviour match"));
 
-} elsif ($o1->on_wsl) {
-	is($o1->tld, "mnt",			"tld mnt");
-	like($o1->path($dn_winc), $re_wsl,	"path path");
-	like($o1->path($dn_wind), qr/mnt.+d.+abc/,	"path drive");
+for my $cond (sort keys %uxp) {
 
-} elsif ($o1->on_windows) {
+	my $rh = $uxp{$cond};
+	my $base = $rh->{'base'};
+	my $wd = $rh->{'wd'};
+	my $ws = $rh->{'ws'};
 
-	is($o1->tld, undef,			"tld windows");
-	like($o1->path($dn_winc), $re_win,	"path path");
-} else {
-	is($o1->tld, undef,			"tld undef");
-}
+#	wd and ws testing does not naturally parse correctly so
+#	have delegate to the t/Harness.pm module
 
+	my $hd = $harn->fs2bs($base);
+	my $hs = $harn->fs2bs($base, 1);
 
-# ---- path other ----
-like($o1->path('1:\hello.txt'), qr/txt/,	"path bad drive");
-like($o1->path(''), qr/^$/,		"path null");
-like($o1->path('xxx'), qr/xxx/,		"path not drive");
+	is(length($hd), length($base),	$harn->cond("fs2bs length"));
 
+	SKIP: {
+		skip "escape yet to be tested", 2;
 
-# ---- winpath ----
-if ($o1->on_cygwin) {
-	is($o1->winpath($dn_cyg), $dn_wind,		"winpath cyg convert");
+		is($os0->escape($base), $hd,	$harn->cond("escape shellify OFF hd cond=$cond"));
 
-	check_equiv($o1->winpath($dn_wsl), $dn_wsl, 	"winpath cyg leave");
-
-} elsif ($o1->on_wsl) {
-	check_equiv($o1->winpath($dn_cyg), $dn_cyg, 	"winpath wls convert");
-
-	check_equiv($o1->winpath($dn_wsl), $dn_wind, 	"winpath wls convert");
-}
-like($o1->winpath('/cygdrive/9/hello.txt'), qr/txt/,	"winpath bad drive");
-like($o1->winpath('/invalid/'), qr/invalid/,		"winpath invalid path");
-is($o1->winpath(''), '',				"winpath blank");
-
-my $dn0 = "/cygdrive/c/xxx";
-check_equiv($o1->winpath($dn0), $dn0, 		"winpath dn0");
-isnt($o1->winpath($dn0), $dn0, 			"winpath diff dn0");
-check_equiv($o2->winpath($dn0), $dn0, 		"winpath conv dn0");
-isnt($o1->winpath($dn0), $o2->winpath($dn0), 	"winpath dual dn0");
-
-my $dn1 = "/dir/xxx";
-check_equiv($o1->winpath($dn1), $dn1, 		"winpath dn1");
-isnt($o1->winpath($dn1), $dn1, 			"winpath diff dn1");
-check_equiv($o2->winpath($dn1), $dn1, 		"winpath conv dn1");
-isnt($o1->winpath($dn1), $o2->winpath($dn1), 	"winpath dual dn1");
-
-my $dn2 = "xxx";
-check_equiv($o1->winpath($dn2), $dn2, 		"winpath dn2");
-check_equiv($o2->winpath($dn2), $dn2, 		"winpath conv dn3");
-is($o1->winpath($dn2), $dn2, 			"winpath diff dn2");
-is($o1->winpath($dn2), $o2->winpath($dn2), 	"winpath dual dn2");
-
-my $dn3 = "/root/xxx";
-check_equiv($o1->winpath($dn3), $dn3,		"winpath dn3");
-isnt($o1->winpath($dn3), $dn3, 			"winpath diff dn3");
-check_equiv($o2->winpath($dn3), $dn3, 		"winpath conv dn3");
-isnt($o1->winpath($dn3), $o2->winpath($dn3), 	"winpath dual dn3");
-
-my $dn4 = "//hostname/xxx";
-check_equiv($o1->winpath($dn4), $dn4, 		"winpath dn4");
-isnt($o1->winpath($dn4), $dn4, 			"winpath diff dn4");
-check_equiv($o2->winpath($dn4), $dn4, 		"winpath conv dn4");
-isnt($o1->winpath($dn4), $o2->winpath($dn4), 	"winpath dual dn4");
-
-my $dn5 = '\\hostname\xxx';
-check_equiv($o1->winpath($dn5), $dn5, 		"winpath dn5");
-is($o1->winpath($dn5), $dn5, 			"winpath diff dn5");
-isnt($o1->winpath($dn5), $o2->winpath($dn5), 	"winpath dual dn5");
-
-# more testing:  do the following
-# ('C:\Temp00');
-# ('C:/Temp01');
-# ('\server\Temp02');
-# ('\\server\Temp03a');
-# ('//server/Temp03b');
-# ("\\server\\Temp04");
-# ("\\\\server\\Temp05");
-# ("/mnt/c//windows/temp06");
-# ('\mnt\c\window\temp07');
-# ("/cygdrive/c/windows/temp08");
-# ('\\wsl$\Ubuntu\home\tomby');
-# ('\\\\\\\\this\\\is\\wierd\\\\now');
-# ('~/tmp');
-# "./tmp";
-
-# -------- wslroot --------
-if ($o1->on_wsl) {
-
-	$log->info("platform: WSL");
-
-	is($o1->wslroot, undef,		"wslroot undefined");
-
-} elsif ($o1->on_cygwin) {
-
-	$log->info("platform: CYGWIN");
-
-	if ($o1->wsl_active) {
-		isnt($o1->wslroot, undef,	"wslroot defined");
-	} else {
-		is($o1->wslroot, undef,	"wslroot defined");
+		is($os1->escape($base), $hs,	$harn->cond("escape shellify ON hs cond=$cond"));
 	}
-
-} elsif ($o1->on_windows) {
-
-	$log->info("platform: Windows");
-
-	if ($o1->wsl_active) {
-		isnt($o1->wslroot, undef,	"wslroot defined");
-	} else {
-		is($o1->wslroot, undef,	"wslroot defined");
-	}
-
-} else {
-
-	$log->info("platform: OTHER");
-
-	is($o1->wslroot, undef,		"wslroot undefined");
 }
 
 
-# -------- wslhome --------
-my $o3 = Batch::Exec::Path->new;
-isa_ok($o3, $harness->this,	"class check $cycle"); $cycle++;
 
-if ($o3->like_windows) {
-	like($o1->wslroot, qr/wsl/,	"wslroot IS on_wsl raw");
-	like($o3->wslroot, qr/wsl/,	"wslroot IS on_wsl convert");
 
-	like($o1->wslhome, qr/wsl.*home/,	"wslhome IS on_wsl raw");
-	like($o3->wslhome, qr/wsl.*home/,	"wslhome IS on_wsl convert");
-} else {
-	is($o1->wslroot, undef,	"wslroot ISNT on_wsl raw");
-	is($o3->wslroot, undef,	"wslroot ISNT on_wsl convert");
+# -------- wslroot and wslhome --------
+#is($o1->parse("foo/bar/dummy"),	6,	$harn->cond("dummy parse"));
+my $re_wsr = qr[wsl\$\/\w+];
 
-	is($o1->wslhome, undef,	"wslhome ISNT on_wsl raw");
-	is($o3->wslhome, undef,	"wslhome ISNT on_wsl convert");
-}
+like($o1->wslroot, qr/.+/,		$harn->cond("wslroot has value"));
+
+$harn->cwul($o1, "wslroot", $re_wsr, $re_wsr, $re_wsr, $re_wsr);
+
+
+my $re_wsh = qr[wsl\$\/\w+\/home];
+
+like($o1->wslhome, qr/.+/,		$harn->cond("wslhome has value"));
+
+$harn->cwul($o1, "wslhome", $re_wsh, $re_wsh, $re_wsh, $re_wsh);
 
 
 __END__

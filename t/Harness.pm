@@ -463,7 +463,7 @@ w=1=1=C=\=2=C:\Users\abc
 w=1=1=D=\=2=D:\Users\abc
 l=1=1=C=/=1=C:/Temp01a
 w=1=1=C=\=1=C:\Temp01b
-w=1=1=server=\=1=\\\\server\\Temp05
+w=0=1=server=\=1=\\\\server\\Temp05
 w=1=1=hostname=\=1=\\hostname\xxx
 w=1=1=server=\=1=\\server\Temp03a
 w=0=1=server=\=1=\\server\\Temp04
@@ -475,4 +475,4 @@ w=0=1=this=\=3=\\\\\\\\this\\\is\\wierd\\\\now
 w=1=1=none=\=1=\server\Temp02
 l=1=1=none=none=4=this/path has/some spaces/and'apostrophe
 l=1=1=nfshost1=none=2=nfshost1:/some/path
-l=1=1=192.168.10.15=none=2=192.168.10.15:/some/path
+l=1=1=192.168.10.15=none=2=192.168.10.15:/numeric/nfs/host
