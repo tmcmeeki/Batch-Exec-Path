@@ -20,7 +20,7 @@ my $log = $harn->log;
 
 
 # -------- main --------
-$harn->planned(123);
+$harn->planned(126);
 
 use_ok($harn->this);
 
@@ -115,6 +115,17 @@ $harn->cwul($o1, "home", qr/cygdrive/, qr/Users/, qr/home/, qr/home/);
 is(-d ".", $o2->extant(".", 'd'),			$harn->cond("dot extant"));
 is(-d $o2->dn_start, $o2->extant($o2->dn_start, 'd'),	$harn->cond("dn_start extant"));
 is(-d $o2->home, $o2->extant($o2->home, 'd'),		$harn->cond("home extant"));
+
+
+# -------- winhome --------
+isnt($o2->winhome, "",			$harn->cond("winhome non-blank"));
+like($o2->winhome, qr/\w+:/,		$harn->cond("winhome regexp"));
+
+
+#-------- winuser --------
+#isnt($o2->winuser, undef,	$harn->cond("winuser simple"));
+my $re_wu = qr/\w+/;
+$harn->cwul($o2, "winuser", $re_wu, $re_wu, $re_wu, $re_wu);
 
 
 __END__

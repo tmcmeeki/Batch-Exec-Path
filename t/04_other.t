@@ -23,25 +23,29 @@ my $log = get_logger(__FILE__);
 
 
 # -------- sub-routines --------
+
+
 # -------- main --------
 $harn->planned(136);
 
+my $o0 = Batch::Exec::Path->new;
+isa_ok($o0, $harn->this,		$harn->cond("class check"));
 
-my $o1 = Batch::Exec::Path->new;
+my $o1 = Batch::Exec::Path->new('shellify' => 0);
 isa_ok($o1, "Batch::Exec::Path",	$harn->cond("class check"));
 
-#my $o2 = Batch::Exec::Path->new('shellify' => 1);
-#isa_ok($o2, "Batch::Exec::Path",	$harn->cond("class check"));
+my $o2 = Batch::Exec::Path->new('shellify' => 1);
+isa_ok($o2, "Batch::Exec::Path",	$harn->cond("class check"));
 
 
 # -------- escape --------
-is($os0->shellify, 0,			$harn->cond("shellify off"));
-is($os1->shellify, 1,			$harn->cond("shellify on"));
+is($o1->shellify, 0,			$harn->cond("shellify off"));
+is($o2->shellify, 1,			$harn->cond("shellify on"));
 
-$os0->behaviour('u');
-$os1->behaviour('u');
-is($os0->behaviour, 'u',		$harn->cond("behaviour unix"));
-is($os0->behaviour, $os1->behaviour,	$harn->cond("behaviour match"));
+$o1->behaviour('u');
+$o2->behaviour('u');
+is($o1->behaviour, 'u',			$harn->cond("behaviour unix"));
+is($o1->behaviour, $o2->behaviour,	$harn->cond("behaviour match"));
 
 my %uxp = (	# first = path (unmodified), second = escape result
   'a' => { 'base' => 'foo',		'us' => 'foo',
@@ -85,22 +89,21 @@ for my $cond (sort keys %uxp) {
 	my $base = $rh->{'base'};
 	my $shell = $rh->{'us'};
 
-#	SKIP: {
-#		skip "escape yet to be tested", 2;
+	SKIP: {
+		skip "escape yet to be tested", 2;
 
-		is($os0->escape($base), $base,	$harn->cond("escape shellify OFF unix cond=$cond"));
+		is($o1->escape($base), $base,	$harn->cond("escape shellify OFF unix cond=$cond"));
 
-		is($os1->escape($base), $shell,	$harn->cond("escape shellify ON unix cond=$cond"));
-#	}
+		is($o2->escape($base), $shell,	$harn->cond("escape shellify ON unix cond=$cond"));
+	}
 }
-exit -1;
 
 
 # -------- escape and shellify: windows behaviour --------
-$os0->behaviour('w');
-$os1->behaviour('w');
-is($os0->behaviour, 'w',		$harn->cond("behaviour wind"));
-is($os0->behaviour, $os1->behaviour,	$harn->cond("behaviour match"));
+$o1->behaviour('w');
+$o2->behaviour('w');
+is($o1->behaviour, 'w',		$harn->cond("behaviour wind"));
+is($o1->behaviour, $o2->behaviour,	$harn->cond("behaviour match"));
 
 for my $cond (sort keys %uxp) {
 
@@ -120,13 +123,37 @@ for my $cond (sort keys %uxp) {
 	SKIP: {
 		skip "escape yet to be tested", 2;
 
-		is($os0->escape($base), $hd,	$harn->cond("escape shellify OFF hd cond=$cond"));
+		is($o1->escape($base), $hd,	$harn->cond("escape shellify OFF hd cond=$cond"));
 
-		is($os1->escape($base), $hs,	$harn->cond("escape shellify ON hs cond=$cond"));
+		is($o2->escape($base), $hs,	$harn->cond("escape shellify ON hs cond=$cond"));
 	}
 }
 
 
+# -------- tld --------
+is($o0->behaviour('u'), 'u',		$harn->cond("behaviour check"));
+is($o1->behaviour('w'), 'w',		$harn->cond("behaviour check"));
+$harn->cwul($o0, qw[  tld	/cygdrive  C:  /mnt    /  ]);
+$log->info("==== ==== ==== ==== ==== ==== ==== ==== ==== ====");
+$harn->cwul($o1, qw[  tld	\cygdrive  C:  \\mnt  \\  ]);
+exit -1;
+
+$harn->cwul($o0, qw[  tld wsl	/cygdrive  C:  /mnt    /  ]);
+exit -1;
+$harn->cwul($o1, qw[  tld wsl	\cygdrive  C:  \\mnt  \\  ]);
+
+$harn->cwul($o0, "tld", "", 		qw[ /cygdrive  C:  /mnt    /  ]);
+$harn->cwul($o1, "tld", "", 		qw[ \cygdrive  C:  \\mnt  \\  ]);
+exit -1;
+$harn->cwul($o0, "tld", undef, "c", "tmp",	"/cygdrive/c/tmp", "","/mnt", "");
+exit -1;
+
+is($o0->type("win"), "win",		$harn->cond("type override"));
+$harn->cwul($o0, qw[  tld  /cygdrive  ], "", "/mnt",  "");
+
+is($o0->type("wsl"), "wsl",		$harn->cond("type override"));
+$harn->cwul($o0, qw[  tld  /cygdrive  //wsl$/Ubuntu  //wsl$/Ubuntu], "");
+exit -1;
 
 
 # -------- wslroot and wslhome --------

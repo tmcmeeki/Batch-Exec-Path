@@ -140,8 +140,11 @@ use Parse::Lex;
 
 
 # --- package constants ---
+use constant ENV_WINHOME => $ENV{'HOMEDRIVE'};
+
 use constant DN_MOUNT_WSL => "mnt";
 use constant DN_MOUNT_CYG => "cygdrive";
+use constant DN_WINHOME => (ENV_WINHOME) ? ENV_WINHOME : "c:";
 
 use constant DN_ROOT_ALL => '/';	# the default root
 use constant DN_ROOT_WSL => 'wsl$';	# this is a WSL location only
@@ -165,15 +168,18 @@ our $AUTOLOAD;
 #our @EXPORT = qw();
 #our @ISA = qw(Exporter);
 our @ISA;
-our $VERSION = '0.001';
+#our $VERSION = '0.001';
+our $VERSION = sprintf "%d.%03d", q[_IDE_REVISION_] =~ /(\d+)/g;
 
 
 # --- package locals ---
 #my $_n_objects = 0;
+my $_lexer = undef;	# define this at class-level to avoid duplicate errors:
+# 'Batch::Exec::Path::_TOKEN_' token is already defined at .../Parse/ALex.pm line nnn
 
 my %_attribute = (	# _attributes are restricted; no direct get/set
 	_home => undef,		# a reliable version of user's home directory
-	_lexer => undef,
+	_lexer => \$_lexer,
 	abs => undef,
 	behaviour => undef,	# platform-dependent default, one of: w, u.
 	deu => STR_DELIM_U,
@@ -275,7 +281,7 @@ sub new {
 
 =over 4
 
-=item OBJ->cat_re([BOOLEAN], EXPR, ...)
+=item OBJ->cat_re([BOOLEAN], [BOOLEAN], EXPR, ...)
 
 Concatenate (join) the EXPR parameters passed to create a REGEXP.  
 The BOOLEAN flag will cause the REGEXP to be book-ended as a start/finish
@@ -285,17 +291,20 @@ expression.
 
 sub cat_re {
 	my $self = shift;
+	my $f_rv = shift; $f_rv = 1 unless defined($f_rv);
 	my $f_bookend = shift; $f_bookend = 1 unless defined($f_bookend);
-	confess "SYNTAX cat_re([BOOLEAN], EXPR)" unless (
-		defined($f_bookend) && @_);
+	confess "SYNTAX cat_re([BOOLEAN], [BOOLEAN], EXPR)" unless (
+		defined($f_rv) && defined($f_bookend) && @_);
 
 	my $str = sprintf "(%s)", join('|', @_);
 
-	my $regexp = ($f_bookend) ?  qr/^$str$/ : qr/$str/;
+	my $regexp = ($f_bookend) ? qr/^$str$/ : qr/$str/;
 
 	$self->log->debug("str [$str] regexp [$regexp]");
 	
-	return $regexp;
+	return $regexp if ($f_rv);
+
+	return $str;
 }
 
 =item OBJ->connector
@@ -506,9 +515,9 @@ sub joiner {
 		&& defined($self->abs)
 		&& defined($self->unc)
 	);
-	$self->log->debug(sprintf "abs [%d]", $self->abs);
-	$self->log->debug(sprintf "type [%s] unc [%s]", $self->type, $self->unc);
 	my @parts;
+
+	$self->dump_me(undef, "joiner()");
 
 	if ($self->unc || $self->type eq 'wsl') {  # file-share or WSL format
 
@@ -558,22 +567,78 @@ sub joiner {
 	return $pn;
 }
 
-=item OBJ->dump_struct
+=item OBJ->dump_nice(EXPR)
 
-Dump debugging information about the current structure.
+A wrapper for Data::Dumper to flatten the output.
+Self-referencial call to EXPR method.
 
 =cut
 
-sub dump_struct {
+sub dump_nice {
 	my $self = shift;
+	my $attr = shift;
+
+	no strict 'refs';
+
+	my $struct = Dumper($self->$attr);
+
+	$struct =~ s/.+VAR[^\[]+//;
+	$struct =~ s/[\;\n]//gm;
+	$struct =~ s/\s+/ /g;
+
+#	$self->log->debug("struct =$struct=");
+
+	my $nice = "$attr $struct";
+
+	return $nice;
+}
+
+=item OBJ->dump_me(Parse::Token)
+
+Dump debugging information about the current token and structure.
+Returns the token object.
+
+=cut
+
+sub dump_me {
+	my $self = shift;
+	my $token = shift;
+	my $context = (@_) ? join(' ', @_) : undef;
+#	confess "SYNTAX dump_me(Parse::Token)" unless (
+#		defined($token) && ref($token) eq 'Parse::Token');
 
 	my $null = '(undef)';
+	my $fdt = (defined($token) && ref($token) =~ /^Parse::Token/) ? 1 : 0;
+#	$self->log->debug(sprintf "ref [%s]", ref($token));
 
-	$self->log->debug(sprintf "DDD drive [%s]", (defined $self->drive) ? $self->drive : $null);
-	$self->log->debug(sprintf "FFF folders [%s]", Dumper($self->folders));
-	$self->log->debug(sprintf "HHH homed [%s]", (defined $self->homed) ? $self->homed : $null);
-	$self->log->debug(sprintf "SSS server [%s]", (defined $self->server) ? $self->server : $null);
-	$self->log->debug(sprintf "VVV volumes [%s]", Dumper($self->volumes));
+	unless (defined $context) {
+		$context = ($fdt) ? $token->name : $self->unknown;
+	}
+
+	$self->log->debug(sprintf "==== PARSE ATTRIBUTES $context ====");
+
+	$self->log->debug($self->dump_nice("folders"));
+	$self->log->debug($self->dump_nice("volumes"));
+	$self->log->debug(sprintf "abs [%s]", (defined $self->abs) ? $self->abs : $null);
+	$self->log->debug(sprintf "drive [%s]", (defined $self->drive) ? $self->drive : $null);
+	$self->log->debug(sprintf "homed [%s]", (defined $self->homed) ? $self->homed : $null);
+	$self->log->debug(sprintf "hybrid [%s]", (defined $self->hybrid) ? $self->hybrid : $null);
+	$self->log->debug(sprintf "mount [%s]", (defined $self->mount) ? $self->mount : $null);
+	$self->log->debug(sprintf "server [%s]", (defined $self->server) ? $self->server : $null);
+	$self->log->debug(sprintf "type [%s]", (defined $self->type) ? $self->type : $null);
+	$self->log->debug(sprintf "unc [%s]", (defined $self->unc) ? $self->unc : $null);
+
+	my $rv; if ($fdt) {
+
+		$self->log->debug(sprintf "name [%s] regexp >%s< status [%s] text [%s]", $token->name, $token->regexp, $token->status, $token->text);
+
+		$rv = $token->text;
+	} else {
+		$rv = undef;
+	}
+	$self->log->debug(sprintf "==== END OF ATTRIBUTES ====");
+
+	return $rv;
 }
 
 =item OBJ->lexer
@@ -588,24 +653,27 @@ For reference, valid pathnames are discussed here:  https://stackoverflow.com/qu
 
 sub lexer {
 	my $self = shift;
-	my $lexer; if (defined $self->{'_lexer'}) {
+	my $lexer; if (defined ${ $self->{'_lexer'} }) {
 
-		$lexer = $self->{'_lexer'};
+		$lexer = ${ $self->{'_lexer'} };
 
+#		$lexer->restart;
 		$lexer->reset;
 		$lexer->end('cyg');
-		$lexer->end('share');
-		$lexer->end('unchost');
-		$lexer->end('wsl');
+#		$lexer->end('share');
+#		$lexer->end('unchost');
+#		$lexer->end('wsl');
+
+#		$self->dump_me(undef, "lexer()");
 
 		return $lexer;
 	}
 	my @token = (
-	qw(cyg:CYG_DRIVE	\w), sub {
+	qw(cyg:LEX_CYG_DRIVE	^\w$), sub {
 
 		$lexer->end('cyg');
 
-		my $drive = $_[1];
+		my $drive = $self->dump_me(shift @_);
 
 		push @{ $self->volumes }, $drive;
 
@@ -613,61 +681,68 @@ sub lexer {
 
 		$drive;
 	},
-	qw{wsl:WSL_DISTRO  [\s\d\w]+}, sub {
+	qw{wsl:LEX_WSL_DISTRO  [\s\d\w]+}, sub {
 
 		$lexer->end('wsl');
 
-		push @{ $self->volumes }, $_[1];
+		my $token = $self->dump_me(shift @_);
 
-		$_[1];
+		push @{ $self->volumes }, $token;
+
+		$token;
   	},
-	qw{unchost:WSL_ROOT  [Ww][Ss][Ll]\$}, sub {
+	qw{unchost:LEX_WSL_ROOT  [Ww][Ss][Ll]\$}, sub {
 
 		$lexer->end('unchost');
-		$lexer->start('wsl');
+
+		my $token = $self->dump_me(shift @_);
 
 		$self->hybrid(1);
 		$self->type("wsl");
 		$self->unc(0);
 
-		push @{ $self->volumes }, $_[1];
+		push @{ $self->volumes }, $token;
 
-		$_[1];
+		$lexer->start('wsl');
+
+		$token;
   	},
-	qw(share:NET_SHARE  [\w\d\-\_]+\$?), sub {
+	qw(share:LEX_NET_SHARE  [\w\d\-\_]+\$?), sub {
 
 		$lexer->end('unchost');
 		$lexer->end('share');
 
-		my $folder = $_[1];
+		my $folder = $self->dump_me(shift @_);
 
 		push @{ $self->volumes }, $folder;
 
-		$self->dump_struct;
 		$folder;
   	},
-	qw(unchost:UNC_HOST  [\w\d\-\_]+), sub {
+	qw(unchost:LEX_UNC_HOST  [\w\d\-\_]+), sub {
 
-		my $host = $_[1];
+		my $host = $self->dump_me(shift @_);
 
 		$self->server($host);
 
 		$lexer->start('share');
 
-		$self->dump_struct;
 		$host;
   	},
-	"NET_PREFIX_L", "\/\/", sub {  
+	"LEX_NET_PREFIX_L", "\/\/", sub {  
+
+		my $token = $self->dump_me(shift @_);
 
 		$self->default('abs', 1);
 		$self->default('type', "lux");
 		$self->default('unc', 1);
 
 		$lexer->start('unchost');
-		$_[1];
+
+		$token;
 	},
-#	qw(NET_PREFIX_W	\\{2}), sub {  
-	qw(NET_PREFIX_W \x5c{2}), sub {  	# \x5c = win backslash
+	qw(LEX_NET_PREFIX_W \x5c{2}), sub {  	# \x5c = win backslash
+
+		my $token = $self->dump_me(shift @_);
 
 		$self->default('abs', 1);
 		$self->default('type', "win");
@@ -675,23 +750,30 @@ sub lexer {
 
 		$lexer->start('unchost');
 
-		$_[1];
+		$token;
 	},
-	qw(PATHSEP	[\\\/]), sub {
+	qw(LEX_PATHSEP	[\\\/]), sub {
+#	"LEX_PATHSEP",	$self->cat_re(0, 0, $self->reu, $self->rew), sub {
+
+#		$self->log->debug(sprintf "argv [%s]", Dumper(\@_));
+
+		my $token = $self->dump_me(shift @_);
 
 		$self->default('abs', 1);
 
-		if ($_[1] =~ /\\/) {
+#		if ($token =~ /\\/) {
+		if ($token =~ $self->rew) {
 
 			$self->default('type', "win");
 		} else {
 			$self->default('type', "lux");
 		}
-		$_[1];
-	},
-	qw(DOS_DRIVE	\w:), sub {	# for DOS drive format, i.e. C:
 
-		my $drive = $_[1];
+		$token;
+	},
+	qw(LEX_DOS_DRIVE	\w:), sub {	# for DOS drive format, i.e. C:
+
+		my $drive = $self->dump_me(shift @_);
 
 		$self->default('type', "win");
 
@@ -699,68 +781,75 @@ sub lexer {
 
 		push @{ $self->volumes }, $drive;
 
-		$self->dump_struct;
-
 		$drive;
 	},
-	qw(NET_HOST	[^\s:]+:), sub {	# for nfs format, i.e. server:
-#	qw(NET_HOST	[\w\.\d\-_]+:+), sub {	# for nfs format, i.e. server:
+	qw(LEX_NET_HOST	[^\s:]+:), sub {	# for nfs format, i.e. server:
+#	qw(LEX_NET_HOST	[\w\.\d\-_]+:+), sub {	# for nfs format, i.e. server:
 
-		my $server = $self->trim($_[1], qr/:$/);
+		my $token = $self->dump_me(shift @_);
+
+		my $server = $self->trim($token, qr/:$/);
 
 		$self->default('type', "nfs");
 
 		$self->server($server);
 
-		$self->dump_struct;
-
-		$_[1];
+		$token;
 	},
-	qw(HOME  ~), sub {
+	qw(LEX_HOME  ~), sub {
+
+		my $token = $self->dump_me(shift @_);
 
 		# tilde is a symbolic reference to an absolute path
 		# but is still treated as a relative path
 #		$self->default('abs', 1);
 		$self->abs(0);
+		$self->homed(1);
 #		$self->default('type', "lux");
 
-		push @{ $self->folders }, $_[1];
+		push @{ $self->folders }, $token;
 
-		$self->homed(1);
-
-		$self->dump_struct;
-
-		$_[1];
+		$token;
 	},
-	qw{CYG_ROOT  [Cc][Yy][Gg][Dd]\w+}, sub {
+	qw{LEX_CYG_ROOT  [Cc][Yy][Gg][Dd]\w+}, sub {
+
+		my $token = $self->dump_me(shift @_);
 
 		$self->type("cyg");
 		$self->hybrid(1);
 
-		push @{ $self->volumes }, $_[1];
+#		push @{ $self->volumes }, $token;
+		push @{ $self->folders }, $token;
+#		$self->folders->[0] = $token;
 
 		$lexer->start('cyg');
 
-		$_[1];
+		$token;
   	},
-	qw(FOLDER  [\s\'\.\w]+), sub {
+#	qw(LEX_FOLDER  [\s\'\.\w]+), sub {
+#	qw(LEX_FOLDER  [\s\.\w]+), sub {
+	qw(LEX_FOLDER  [\w\d\-\_]+), sub {
 
-		my $folder = $_[1];
+		my $folder = $self->dump_me(shift @_);
 
 		$self->log->debug("folder [$folder]");
 
-		$self->homed(1)
-			if ($folder =~ $self->cat_re(1, FN_HOME, FN_USER));
+		if ($folder =~ $self->cat_re(1, 1, FN_HOME, FN_USER)) {
 
+			$self->log->debug("GOT A HOME DIR");
+
+			$self->homed(1);
+		}
 		$self->default('abs', 0);
 
 		my $fpf = 1; if (scalar(@{ $self->folders }) == 1) {
 
 			my $parent = $self->folders->[0];
 
-			my $re = $self->cat_re(1, DN_MOUNT_WSL, DN_MOUNT_CYG);
-
+			my $re = $self->cat_re(1, 1, DN_MOUNT_WSL, DN_MOUNT_CYG);
 			if ($parent =~ $re) {
+
+				$self->log->debug("got here FOLDER");
 
 				$self->drive_letter($folder);
 
@@ -776,11 +865,9 @@ sub lexer {
 		}
 		push @{ $self->folders }, $folder if ($fpf);
 
-		$self->dump_struct;
-
 		$folder;
 	},
-	qw(ERROR  .*), sub {
+	qw(LEX_ERROR  .*), sub {
 
 		$self->cough(sprintf("parse path token failed [%s]\n", $_[1]));
 	},
@@ -793,7 +880,7 @@ sub lexer {
 
 	$lexer = Parse::Lex->new(@token);
 
-	$self->{'_lexer'} = $lexer;
+	${ $self->{'_lexer'} } = $lexer;
 
 	return $lexer;
 }
@@ -816,22 +903,36 @@ sub parse {
 	$self->homed(undef);
 	$self->hybrid(undef);
 	$self->letter(undef);
-	$self->folders([]);
+#	$self->folders(undef); $self->folders([]);
+	delete $self->{'folders'}; $self->{'folders'} = [];
 	$self->server(undef);
 	$self->type(undef);
 	$self->unc(undef);
-	$self->volumes([]);
+#	$self->volumes(undef); $self->volumes([]);
+	delete $self->{'volumes'}; $self->{'volumes'} = [];
 
 	my $lex = $self->lexer;
 
 	$lex->from($pn);
 
+	my $state = "BEGIN"; for (sort qw/ cyg wsl unchost share /) {
+		$state .= sprintf " %s=%d", $_, $lex->state($_);
+	} $self->log->debug("state [$state]");
 	my $count; for ($count = 1; $count; $count++) {
+
+		$self->dump_me(undef, "parse($count)");
+
+#		$self->log->debug(sprintf "offset BEFORE [%ld]", $lex->offset);
 
 		my $token = $lex->next;
 
+#		$self->log->debug(sprintf "offset AFTER [%ld]", $lex->offset);
+
 		last if ($lex->eoi);
 	}
+	my $state = "END"; for (sort qw/ cyg wsl unchost share /) {
+		$state .= sprintf " %s=%d", $_, $lex->state($_);
+	} $self->log->debug("state [$state]");
 
 	# failsafe value following undef above
 	$self->default('abs', 0);
@@ -839,6 +940,8 @@ sub parse {
 	$self->default('hybrid', 0);
 	$self->default('type', "lux");
 	$self->default('unc', 0);
+
+	$self->dump_me(undef, "AFTER parse($count)");
 
 	return $count;
 }
@@ -858,118 +961,70 @@ sub separator {
 	return $self->rew;
 }
 
-=item OBJ->tld([TYPE], [SERVER])
+=item OBJ->tld([TYPE])
 
-Return the top-level directory component for a hybrid OS, e.g. cygwin or mnt.
-This returns the root directory for a standalone linux platform.
+Return the top-level path component for a hybrid OS, e.g. cygwin or mnt.
+This returns the root directory for a standalone linux platform, or
 You can override the behaviour, particularly for WSL by passing a TYPE.
-Specifying the SERVER argument will override any top-level behaviour as it 
-will expect to return a network path.
 
 =cut
 
 sub tld {
 	my $self = shift;
-	my $type = shift ; $self->type($type) if defined($type);
-	my $server = shift ; $self->server($server) if defined($server);
-	$self->log->logconfess($self->msg) unless defined($self->type);
+#	my $type = shift ; $self->type($type) if defined($type);
+	$self->type(shift) if (@_);
+#	my $path = shift ; $path = '' unless defined($path);
+#	$self->log->logconfess($self->msg) unless defined($self->type);
 
-	my $hostpath = join($self->deu, $self->deu, $self->server)
-		if (defined $self->server);
+	$self->dump_me(undef, "tld()");
 
-	$self->log->debug(sprintf "hostpath [%s]", (defined $hostpath) ? $hostpath : "(undef)");
+	my $type = (defined $self->type) ? $self->type : $self->unknown;
 
-	my $tld; if ($self->on_cygwin) {
+	if ($self->on_cygwin) {
 
-		$tld = ($hostpath) ? $hostpath : $self->deu . DN_MOUNT_CYG;
+		if ($type eq 'wsl') {
+			$self->parse($self->wslroot);
+		} else {
+			$self->parse($self->deu . DN_MOUNT_CYG);
+		}
 
 	} elsif ($self->on_wsl) {
 
-		if (defined $hostpath) {
-			$tld = $hostpath;
+		if ($type eq 'wsl') {
+			$self->parse($self->wslroot);
 		} else {
-			if ($self->type eq 'wsl') {
-				$tld = join($self->deu, $self->deu, $self->wslroot);
-			} else {
-				$tld = $self->deu . DN_MOUNT_WSL;
-			}
+			$self->parse($self->deu . DN_MOUNT_WSL);
 		}
 	} elsif ($self->on_windows) {
 
-		if (defined $hostpath) {
-			$tld = $hostpath;
+		if ($type eq 'wsl') {
+			$self->parse($self->wslroot);
 		} else {
-			if ($self->type eq 'wsl') {
-				$tld = join($self->deu, $self->deu, $self->wslroot);
-			}
+
+			$self->parse($self->winhome);
 		}
 	} else {
-		$tld = $hostpath if (defined $hostpath);
+		$self->parse(DN_ROOT_ALL);
 	}
-	$tld = '' unless defined($tld);
-#		$self->cough("unable to determine platform [$^O]");
-	$self->log->debug(sprintf "type [%s] tld [$tld]", $self->type);
-
-	return $tld;
+	return $self->joiner;
 }
 
-=item OBJ->volume([DRIVE])
+=item OBJ->winhome
 
-Generate a volume string which is platform depedent, e.g C: or /cygdrive/c.
-NOTE: this routine is fatal if no drive has been defined (see the B<drive_letter> method, and since not all paths will have a volume, this check should be
-made first.
+Returns the name of the current "home drive" of the Windows user (not the
+home directory.  See also B<home>.
 
 =cut
 
-sub volume {
+sub winhome {
 	my $self = shift;
-	$self->drive_letter(shift) if (@_);
-	$self->log->logconfess($self->msg) unless (
-		defined($self->type) && defined($self->unc));
-	confess "SYNTAX volume(DRIVE)" unless defined($self->drive);
 
-	$self->log->debug(sprintf "type [%s] unc [%d]", $self->type, $self->unc);
-	$self->log->debug(sprintf "on_windows [%d] on_wsl [%d]", $self->on_windows, $self->on_wsl);
-	$self->dump_struct;
+	my $drv = DN_WINHOME;
 
-	my $volume; if ($self->on_windows) {
+#	$self->log->debug(sprintf "drv [$drv] ENV_WINHOME [%s]", ENV_WINHOME);
+	$self->log->debug(sprintf "drv [$drv]");
 
-		if ($self->type eq 'wsl') {
-
-			$volume = join($self->deu, $self->deu, $self->wslroot);
-
-		} else {
-			if (defined $self->server) {
-				$volume = join($self->deu, $self->tld, $self->letter);
-			} else {
-				$volume = $self->drive;
-			}
-		}
-	} else {
-		$self->log->debug(sprintf "deu [%s]", $self->deu);
-
-		$self->log->debug(sprintf "letter [%s]", $self->letter);
-
-		if ($self->on_wsl && $self->type eq 'wsl') {
-
-			$volume = join($self->deu, $self->deu, $self->wslroot);
-
-		} else {
-			if (defined $self->letter) {
-
-				$volume = join($self->deu, $self->tld, $self->letter);
-#				if ($self->letter eq $self->unknown) {
-#				} else {
-#					$volume = $self->tld . $self->letter;
-#				}
-			} else {
-				$volume = $self->tld;
-			}
-		}
-	}
-	$self->log->debug("volume [$volume]");
-
-	return $volume;
+	return DN_WINHOME;
 }
 
 =item OBJ->winuser
@@ -1057,7 +1112,6 @@ sub wslroot {
 	$self->log->debug(sprintf "DN_ROOT_WSL [%s]", DN_ROOT_WSL);
 
 	my $root = join('', $self->dew, $self->dew, DN_ROOT_WSL, $self->dew, $dist);
-
 	$self->parse($root);
 
 	return $self->joiner;

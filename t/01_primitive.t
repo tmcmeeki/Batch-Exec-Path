@@ -20,7 +20,7 @@ use Harness;
 #BEGIN { use_ok('Batch::Exec::Path') };
 my $harn = Harness->new('Batch::Exec::Path');
 
-$harn->planned(39);
+$harn->planned(23);
 use_ok($harn->this);
 #require_ok($harn->this);
 
@@ -43,9 +43,6 @@ my $os1 = Batch::Exec::Path->new('behaviour' => 'u');
 isa_ok($os1, $harn->this,		$harn->cond("class check"));
 
 my $os2 = Batch::Exec::Path->new;
-isa_ok($os2, $harn->this,		$harn->cond("class check"));
-
-my $os3 = Batch::Exec::Path->new;
 isa_ok($os2, $harn->this,		$harn->cond("class check"));
 
 
@@ -87,40 +84,6 @@ is($os0->drive, "c:",			$harn->cond("drive colon"));
 
 is($os0->drive_letter('wsl$'), 'wsl$',	$harn->cond("drive_letter bucks"));
 is($os0->drive, 'wsl$',			$harn->cond("drive bucks"));
-
-
-# -------- tld --------
-is($os2->type("win"), "win",		$harn->cond("type override"));
-$harn->cwul($os2, qw[  tld  /cygdrive  ], "", "/mnt",  "");
-
-is($os2->type("wsl"), "wsl",		$harn->cond("type override"));
-$harn->cwul($os2, qw[  tld  /cygdrive  //wsl$/Ubuntu  //wsl$/Ubuntu], "");
-exit -1;
-
-
-#-------- winuser --------
-#isnt($os0->winuser, undef,	$harn->cond("winuser simple"));
-my $re_wu = qr/\w+/;
-$harn->cwul($os0, "winuser", $re_wu, $re_wu, $re_wu, $re_wu);
-
-
-# -------- volume --------
-is($os2->type("win"), "win",		$harn->cond("type override"));
-is($os2->unc(0), 0,			$harn->cond("unc override"));
-$harn->cwul($os2, qw[ volume  x  /cygdrive/x  x:  /mnt/x  /x ]);
-
-
-is($os2->server("host"), "host",	$harn->cond("server override"));
-$harn->cwul($os2, qw[ volume  x  //host/x  //host/x  //host/x  //host/x ]);
-
-
-is($os2->type("wsl"), "wsl",		$harn->cond("type override"));
-is($os2->server(undef), undef,		$harn->cond("server override"));
-$harn->cwul($os2, qw[ volume  x  /cygdrive/x  //wsl$/Ubuntu  //wsl$/Ubuntu  /x ]);
-
-
-is($os2->type("lux"), "lux",		$harn->cond("type override"));
-$harn->cwul($os2, qw[ volume  ee  /cygdrive/ee  ee:  /mnt/ee  /ee ]);
 
 
 __END__

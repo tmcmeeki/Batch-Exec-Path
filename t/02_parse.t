@@ -28,7 +28,7 @@ my $log = get_logger(__FILE__);
 
 
 # -------- main --------
-$harn->planned(546);
+$harn->planned(538);
 
 my $o1 = Batch::Exec::Path->new;
 isa_ok($o1, $harn->this,		$harn->cond("class check"));
@@ -86,8 +86,6 @@ is($o1->unc, 0,				$harn->cond("unc"));
 is_deeply($o1->folders, [ 'tmp' ],	$harn->cond("folders"));
 is_deeply($o1->volumes, [ 'c:' ],	$harn->cond("volumes"));
 
-$harn->cwul($o1, qw[  volume  /cygdrive/c  c:  /mnt/c  /c ]);
-
 
 is($o1->parse('/cygdrive/c/tmp'), 7,	$harn->cond("parse cygdrive_c_tmp"));
 is($o1->abs, 1,				$harn->cond("abs"));
@@ -100,8 +98,6 @@ is($o1->type, 'cyg',			$harn->cond("type"));
 is($o1->unc, 0,				$harn->cond("unc"));
 is_deeply($o1->folders, [ 'tmp' ],	$harn->cond("folders"));
 is_deeply($o1->volumes, [ 'cygdrive', 'c' ],	$harn->cond("volumes"));
-
-$harn->cwul($o1, qw[  volume  /cygdrive/c  c:  /mnt/c  /c ]);
 
 
 is($o1->parse('/tmp'), 3,		$harn->cond("parse tmp_2"));
@@ -129,9 +125,6 @@ is($o1->unc, 0,				$harn->cond("unc"));
 is_deeply($o1->folders, [],		$harn->cond("folders"));
 is_deeply($o1->volumes, [ 'wsl$', 'Ubuntu' ],	$harn->cond("volumes"));
 
-#$harn->cwul($o1, qw[ volume /cygdrive/wsl$ //wsl$/Ubuntu //wsl$/Ubuntu /wsl$ ]);
-#$harn->cwul($o1, qw[ volume /cygdrive/wsl$ //wsl$ //wsl$/Ubuntu /wsl$ ]);
-
 
 is($o1->parse('\\\\server\\c$'), 5,	$harn->cond("parse server_c8"));
 is($o1->abs, 1,				$harn->cond("abs"));
@@ -143,8 +136,6 @@ is($o1->type, 'win',			$harn->cond("type"));
 is($o1->unc, 1,				$harn->cond("unc"));
 is_deeply($o1->folders, [],		$harn->cond("folders"));
 is_deeply($o1->volumes, [ 'c$' ],	$harn->cond("volumes"));
-
-#$harn->cwul($o1, qw[ volume //server/c$ //server/c$ //server/c$ //server/c$ ]);
 
 
 is($o1->parse('\\\\server\\c$\\tmp'), 7,	$harn->cond("parse server_c8_tmp"));
@@ -158,8 +149,6 @@ is($o1->unc, 1,				$harn->cond("unc"));
 is_deeply($o1->folders, [ 'tmp' ],	$harn->cond("folders"));
 is_deeply($o1->volumes, [ 'c$' ],	$harn->cond("volumes"));
 
-#$harn->cwul($o1, qw[ volume //server/c$ //server/c$ //server/c$ //server/c$ ]);
-
 
 is($o1->parse('C:\Temp'), 4,		$harn->cond("parse cdrv_temp"));
 is($o1->abs, 1,				$harn->cond("abs"));
@@ -171,8 +160,6 @@ is($o1->type, 'win',			$harn->cond("type"));
 is($o1->unc, 0,				$harn->cond("unc"));
 is_deeply($o1->folders, [ 'Temp' ],	$harn->cond("folders"));
 is_deeply($o1->volumes, [ 'C:' ],	$harn->cond("volumes"));
-
-$harn->cwul($o1, qw[ volume /cygdrive/C C: /mnt/C /C ]);
 
 
 is($o1->parse('C:/Temp'), 4,		$harn->cond("parse cdrv_temp_2"));
@@ -186,8 +173,6 @@ is($o1->unc, 0,				$harn->cond("unc"));
 is_deeply($o1->folders, [ 'Temp' ],	$harn->cond("folders"));
 is_deeply($o1->volumes, [ 'C:' ],	$harn->cond("volumes"));
 
-$harn->cwul($o1, qw[ volume /cygdrive/C C: /mnt/C /C ]);
-
 
 is($o1->parse('\server\Temp'), 5,	$harn->cond("parse server_temp"));
 is($o1->abs, 1,				$harn->cond("abs"));
@@ -200,8 +185,6 @@ is($o1->unc, 0,				$harn->cond("unc"));
 is_deeply($o1->folders, [ 'server', 'Temp' ],	$harn->cond("folders"));
 is_deeply($o1->volumes, [],		$harn->cond("volumes"));
 
-$harn->cwul($o1, qw[ volume x /cygdrive/x x: /mnt/x /x ]);
-
 
 is($o1->parse('\\\\server\\Temp'), 5,	$harn->cond("parse server_temp_2"));
 is($o1->abs, 1,				$harn->cond("abs"));
@@ -213,8 +196,6 @@ is($o1->type, 'win',			$harn->cond("type"));
 is($o1->unc, 1,				$harn->cond("unc"));
 is_deeply($o1->folders, [],		$harn->cond("folders"));
 is_deeply($o1->volumes, [ 'Temp' ],	$harn->cond("volumes"));
-
-$harn->cwul($o1, qw[ volume z //server/z //server/z //server/z //server/z ]);
 
 
 is($o1->parse('//server/Temp'), 5,	$harn->cond("parse server_temp_3"));
@@ -281,21 +262,16 @@ is_deeply($o1->volumes, [ "C:" ],	$harn->cond("volumes"));
 
 is($o1->parse('/mnt/c/windows/temp'), 9,	$harn->cond("parse mnt_c_windows_temp"));
 is($o1->server, undef,			$harn->cond("server"));
-#$harn->cwul($o1, "letter", undef, undef, "c", undef);
 is($o1->letter, 'c',			$harn->cond("letter"));
 is($o1->type, 'lux',			$harn->cond("type"));
 is($o1->homed, 0,			$harn->cond("homed"));
 is($o1->unc, 0,				$harn->cond("unc"));
 is($o1->abs, 1,				$harn->cond("abs"));
 is($o1->drive, 'c:',			$harn->cond("drive"));
-#$harn->cwul($o1, "drive", undef, undef, "c:", undef);
 my $ran = [ 'mnt', 'c', 'windows', 'temp' ];
-#$harn->cwul($o1, "folders", $ran, $ran, [ 'windows', 'temp' ], $ran);
 is_deeply($o1->folders, [ qw/ windows temp / ],	$harn->cond("folders"));
 is_deeply($o1->volumes, [qw/ mnt c /],		$harn->cond("volumes"));
 #is_deeply($o1->volumes, [ 'mnt', 'c' ],		$harn->cond("volumes"));
-
-$harn->cwul($o1, qw[ volume /cygdrive/c c: /mnt/c /c ]);
 
 
 is($o1->parse('\\mnt\\c\\window\\temp'), 9,	$harn->cond("parse mnt_c_window_temp"));
@@ -332,8 +308,6 @@ is($o1->type, 'lux',			$harn->cond("type"));
 is($o1->unc, 0,				$harn->cond("unc"));
 is_deeply($o1->folders, [qw/ ~ tmp /],	$harn->cond("folders"));
 is_deeply($o1->volumes, [],		$harn->cond("volumes"));
-
-$harn->cwul($o1, qw[ volume y /cygdrive/y y: /mnt/y /y ]);
 
 
 is($o1->parse('/tmp'), 3,		$harn->cond("parse tmp_3"));

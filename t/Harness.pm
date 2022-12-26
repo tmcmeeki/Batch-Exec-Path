@@ -143,12 +143,18 @@ sub cwul {	# four-way platform-related test
 		if ($obj->$platform) {
 
 			my $ref = ref($check);
+			my @argv = map {
+				(defined $_) ? $_ : "(undef)";
+			} @_;
+			my $what = (defined $check) ? $check : "(undef)";
 
-			$self->log->debug(sprintf "method [$meth(%s)] [$platform] ref [$ref] check [%s]", join(', ', @_), (defined $check) ? $check : "(undef)");
+			$self->log->debug(sprintf "method [$meth(%s)] [$platform] ref [$ref] check [$what]", join(', ', @argv));
 
 			if ($ref eq 'Regexp') {
+
 				like($obj->$meth(@_), $check, $self->cond($meth));
 			} elsif ($ref eq '') {
+
 				is($obj->$meth(@_), $check, $self->cond($meth));
 			} else {
 				is_deeply($obj->$meth(@_), $check, $self->cond($meth));

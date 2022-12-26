@@ -23,7 +23,7 @@ my $log = get_logger(__FILE__);
 
 
 # -------- main --------
-$harn->planned(136);
+$harn->planned(132);
 
 my $o1 = Batch::Exec::Path->new('behaviour' => 'u');
 isa_ok($o1, $harn->this,		$harn->cond("class check"));
