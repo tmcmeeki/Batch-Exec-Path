@@ -6,12 +6,11 @@ use strict;
 
 #use Data::Compare;
 use Data::Dumper;
-use Log::Log4perl qw/ :easy /;
-#use Logfer qw/ :all /;
+#use Log::Log4perl qw/ :easy /;
+use Logfer qw/ :all /;
 
 
 # ---- test harness ----
-#use Test::More tests => 68;
 use Test::More;
 use lib 't';
 use Harness;
@@ -20,18 +19,16 @@ use Harness;
 #BEGIN { use_ok('Batch::Exec::Path') };
 my $harn = Harness->new('Batch::Exec::Path');
 
-$harn->planned(23);
+$harn->planned(36);
 use_ok($harn->this);
-#require_ok($harn->this);
 
 
 # -------- constants --------
-#use constant RE_PATH_DELIM => qr/[\\\/]+/;
 
 
 # -------- global variables --------
 #Log::Log4perl->easy_init($ERROR);
-Log::Log4perl->easy_init($DEBUG);
+#Log::Log4perl->easy_init($DEBUG);
 my $log = get_logger(__FILE__);
 
 
@@ -44,6 +41,18 @@ isa_ok($os1, $harn->this,		$harn->cond("class check"));
 
 my $os2 = Batch::Exec::Path->new;
 isa_ok($os2, $harn->this,		$harn->cond("class check"));
+
+
+# -------- cat_str --------
+SKIP: {
+	skip "cat_str fatal", 1;
+
+	is($os0->cat_str, "xx",			$harn->cond("cat_str fatal"));
+}
+is($os0->cat_str("xx"), "(xx)",			$harn->cond("cat_str single"));
+is($os0->cat_str("xx", "yy"), "(xx|yy)",	$harn->cond("cat_str double"));
+is($os0->cat_str(qw[ x y z ]), "(x|y|z)",	$harn->cond("cat_str triple"));
+is($os0->cat_str("xx", undef), "(xx)",		$harn->cond("cat_str undef"));
 
 
 # -------- cat_re --------
@@ -84,6 +93,20 @@ is($os0->drive, "c:",			$harn->cond("drive colon"));
 
 is($os0->drive_letter('wsl$'), 'wsl$',	$harn->cond("drive_letter bucks"));
 is($os0->drive, 'wsl$',			$harn->cond("drive bucks"));
+
+
+# -------- is_known and is_unknown --------
+my $struk = $os1->unknown;
+like($struk, qr/unknown/,		$harn->cond("unknown string"));
+is($os1->is_known($struk), 0,		$harn->cond("is_known positive"));
+is($os1->is_unknown($struk), 1,		$harn->cond("is_unknown positive"));
+
+is($os1->is_known("xxx"), 1,		$harn->cond("is_known negative"));
+is($os1->is_unknown("xxx"), 0,		$harn->cond("is_unknown negative"));
+
+is($os1->is_known("has_unknown_"), 0,	$harn->cond("is_known regexp"));
+is($os1->is_unknown("has_unknown_"), -1,	$harn->cond("is_unknown regexp"));
+is($os1->is_unknown("/some/path/_unknown_"), -1,	$harn->cond("is_unknown regexp"));
 
 
 __END__

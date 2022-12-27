@@ -86,6 +86,11 @@ Reinitialised and conditionally set by the B<parse> method.
 No default applies.
 Subsequently utilised by the B<joiner> method.
 
+=item OBJ->exists
+
+Boolean which indicates if the associated path refers to an extant file.
+This is reset by the B<parse> method and assigned by the B<joiner> method.
+
 =item OBJ->folders
 
 The list of folders in a local filesystem hierarchy.
@@ -174,17 +179,15 @@ our $VERSION = sprintf "%d.%03d", q[_IDE_REVISION_] =~ /(\d+)/g;
 
 # --- package locals ---
 #my $_n_objects = 0;
-my $_lexer = undef;	# define this at class-level to avoid duplicate errors:
-# 'Batch::Exec::Path::_TOKEN_' token is already defined at .../Parse/ALex.pm line nnn
 
 my %_attribute = (	# _attributes are restricted; no direct get/set
 	_home => undef,		# a reliable version of user's home directory
-	_lexer => \$_lexer,
 	abs => undef,
 	behaviour => undef,	# platform-dependent default, one of: w, u.
 	deu => STR_DELIM_U,
 	dew => STR_DELIM_W,
 	drive => undef,
+	exists => undef,
 	folders => [],
 	homed => undef,
 	hybrid => undef,
@@ -281,28 +284,46 @@ sub new {
 
 =over 4
 
-=item OBJ->cat_re([BOOLEAN], [BOOLEAN], EXPR, ...)
+=item OBJ->cat_re(BOOLEAN, EXPR, ...)
 
 Concatenate (join) the EXPR parameters passed to create a REGEXP.  
 The BOOLEAN flag will cause the REGEXP to be book-ended as a start/finish
-expression.
+expression, which is the default behaviour.
 
 =cut
 
 sub cat_re {
 	my $self = shift;
-	my $f_rv = shift; $f_rv = 1 unless defined($f_rv);
 	my $f_bookend = shift; $f_bookend = 1 unless defined($f_bookend);
-	confess "SYNTAX cat_re([BOOLEAN], [BOOLEAN], EXPR)" unless (
-		defined($f_rv) && defined($f_bookend) && @_);
+	confess "SYNTAX cat_re(BOOLEAN, EXPR)" unless (@_);
 
-	my $str = sprintf "(%s)", join('|', @_);
+	my $str = $self->cat_str(@_);
 
 	my $regexp = ($f_bookend) ? qr/^$str$/ : qr/$str/;
 
-	$self->log->debug("str [$str] regexp [$regexp]");
+	$self->log->trace("regexp [$regexp]");
 	
-	return $regexp if ($f_rv);
+	return $regexp;
+}
+
+=item OBJ->cat_str(EXPR, ...)
+
+Concatenate (join) the EXPR parameter(s) using a pipe as the delimeter,
+and surround with parenthesis.  Returns a string.
+
+=cut
+
+sub cat_str {
+	my $self = shift;
+	confess "SYNTAX cat_str(EXPR)" unless (@_);
+
+	my @valid; map {
+		push @valid, $_ if defined($_);
+	} @_;
+
+	my $str = sprintf "(%s)", join('|', @valid);
+
+	$self->log->debug("str [$str]");
 
 	return $str;
 }
@@ -445,17 +466,26 @@ sub escape {
 
 =item OBJ->extant(PATH, [TYPE])
 
-Checks if the file specified by PATH exists. Subject to fatal processing.
+Checks if the file specified by PATH exists. Unlike the parent method this is
+a non-fatal check.
 
 =cut
 
 sub extant {
 	my $self = shift;
 	my $pn = shift;
-	my $type = shift; $type = 'f' unless defined($type);
+	my $type = shift; $type = 'e' unless defined($type);
 	confess "SYNTAX extant(EXPR)" unless defined($pn);
 
-	return $self->SUPER::extant($pn, $type);
+	my $previous = $self->fatal;
+
+	$self->fatal(0);
+
+	my $rv =  $self->SUPER::extant($pn, $type);
+
+	$self->fatal($previous);
+
+	return $rv;
 }
 
 =item OBJ->home
@@ -487,8 +517,9 @@ sub home {
 
 =item OBJ->is_known(EXPR)
 
-Check if the EXPR is "known", i.e. something other than the value referred to
-by the B<unknown> method.
+Check if the EXPR is "known" or effectively so, per the B<unknown> attribute.
+Returns 1 is exact match or -1 for regexp match, or 0 for no match.
+The correlating method to B<is_unknown>.
 
 =cut
 
@@ -497,9 +528,35 @@ sub is_known {
 	my $expr = shift;
 	confess "SYNTAX is_known(EXPR)" unless defined($expr);
 
-	return 0 if ($expr eq $self->unknown);
+	my $rv = $self->is_unknown($expr);
 
-	return 1;
+	return 1 unless ($rv);	# value is NOT unknown!
+
+	return 0;
+}
+
+=item OBJ->is_unknown(EXPR)
+
+Check if the EXPR is "unknown" or effectively so, per the B<unknown> attribute.
+Returns 1 is exact match or -1 for regexp match, or 0 for no match.
+The correlating method to B<is_known>.
+
+=cut
+
+sub is_unknown {
+	my $self = shift;
+	my $expr = shift;
+	confess "SYNTAX is_unknown(EXPR)" unless defined($expr);
+
+	my $suk = $self->unknown;
+
+	$self->log->trace("expr [$expr] suk [$suk]");
+
+	return 1 if ($expr eq $suk);
+
+	return -1 if ($expr =~ /$suk/);
+
+	return 0;
 }
 
 =item OBJ->joiner
@@ -564,6 +621,8 @@ sub joiner {
 
 	$self->log->debug("pn [$pn]");
 
+	$self->exists($self->extant($pn));
+
 	return $pn;
 }
 
@@ -621,6 +680,7 @@ sub dump_me {
 	$self->log->debug($self->dump_nice("volumes"));
 	$self->log->debug(sprintf "abs [%s]", (defined $self->abs) ? $self->abs : $null);
 	$self->log->debug(sprintf "drive [%s]", (defined $self->drive) ? $self->drive : $null);
+	$self->log->debug(sprintf "exists [%s]", (defined $self->exists) ? $self->exists : $null);
 	$self->log->debug(sprintf "homed [%s]", (defined $self->homed) ? $self->homed : $null);
 	$self->log->debug(sprintf "hybrid [%s]", (defined $self->hybrid) ? $self->hybrid : $null);
 	$self->log->debug(sprintf "mount [%s]", (defined $self->mount) ? $self->mount : $null);
@@ -653,21 +713,7 @@ For reference, valid pathnames are discussed here:  https://stackoverflow.com/qu
 
 sub lexer {
 	my $self = shift;
-	my $lexer; if (defined ${ $self->{'_lexer'} }) {
-
-		$lexer = ${ $self->{'_lexer'} };
-
-#		$lexer->restart;
-		$lexer->reset;
-		$lexer->end('cyg');
-#		$lexer->end('share');
-#		$lexer->end('unchost');
-#		$lexer->end('wsl');
-
-#		$self->dump_me(undef, "lexer()");
-
-		return $lexer;
-	}
+	my $lexer;
 	my @token = (
 	qw(cyg:LEX_CYG_DRIVE	^\w$), sub {
 
@@ -753,7 +799,7 @@ sub lexer {
 		$token;
 	},
 	qw(LEX_PATHSEP	[\\\/]), sub {
-#	"LEX_PATHSEP",	$self->cat_re(0, 0, $self->reu, $self->rew), sub {
+#	"LEX_PATHSEP",	$self->cat_str($self->reu, $self->rew), sub {
 
 #		$self->log->debug(sprintf "argv [%s]", Dumper(\@_));
 
@@ -828,13 +874,13 @@ sub lexer {
   	},
 #	qw(LEX_FOLDER  [\s\'\.\w]+), sub {
 #	qw(LEX_FOLDER  [\s\.\w]+), sub {
-	qw(LEX_FOLDER  [\w\d\-\_]+), sub {
+	qw(LEX_FOLDER  [\.\'\s\w\d\-\_]+), sub {
 
 		my $folder = $self->dump_me(shift @_);
 
 		$self->log->debug("folder [$folder]");
 
-		if ($folder =~ $self->cat_re(1, 1, FN_HOME, FN_USER)) {
+		if ($folder =~ $self->cat_re(1, FN_HOME, FN_USER)) {
 
 			$self->log->debug("GOT A HOME DIR");
 
@@ -846,7 +892,7 @@ sub lexer {
 
 			my $parent = $self->folders->[0];
 
-			my $re = $self->cat_re(1, 1, DN_MOUNT_WSL, DN_MOUNT_CYG);
+			my $re = $self->cat_re(1, DN_MOUNT_WSL, DN_MOUNT_CYG);
 			if ($parent =~ $re) {
 
 				$self->log->debug("got here FOLDER");
@@ -875,14 +921,11 @@ sub lexer {
 	$self->log->trace(sprintf "token [%s]", Dumper(\@token));
 
 	Parse::Lex->inclusive(qw/ cyg share unchost wsl /);
-
 	Parse::Lex->trace(1) if ($ENV{'DEBUG'});
 
 	$lexer = Parse::Lex->new(@token);
 
-	${ $self->{'_lexer'} } = $lexer;
-
-	return $lexer;
+	return ("LEX_", $lexer);
 }
  
 =item OBJ->parse(EXPR)
@@ -900,39 +943,26 @@ sub parse {
 
 	$self->abs(undef);
 	$self->drive(undef);
+	$self->exists(0);
 	$self->homed(undef);
 	$self->hybrid(undef);
 	$self->letter(undef);
-#	$self->folders(undef); $self->folders([]);
-	delete $self->{'folders'}; $self->{'folders'} = [];
+	$self->folders([]);
 	$self->server(undef);
 	$self->type(undef);
 	$self->unc(undef);
-#	$self->volumes(undef); $self->volumes([]);
-	delete $self->{'volumes'}; $self->{'volumes'} = [];
+	$self->volumes([]);
 
-	my $lex = $self->lexer;
+	my ($rel, $lex) = $self->lexer;
 
 	$lex->from($pn);
 
-	my $state = "BEGIN"; for (sort qw/ cyg wsl unchost share /) {
-		$state .= sprintf " %s=%d", $_, $lex->state($_);
-	} $self->log->debug("state [$state]");
 	my $count; for ($count = 1; $count; $count++) {
-
-		$self->dump_me(undef, "parse($count)");
-
-#		$self->log->debug(sprintf "offset BEFORE [%ld]", $lex->offset);
 
 		my $token = $lex->next;
 
-#		$self->log->debug(sprintf "offset AFTER [%ld]", $lex->offset);
-
 		last if ($lex->eoi);
 	}
-	my $state = "END"; for (sort qw/ cyg wsl unchost share /) {
-		$state .= sprintf " %s=%d", $_, $lex->state($_);
-	} $self->log->debug("state [$state]");
 
 	# failsafe value following undef above
 	$self->default('abs', 0);
@@ -942,6 +972,24 @@ sub parse {
 	$self->default('unc', 0);
 
 	$self->dump_me(undef, "AFTER parse($count)");
+
+	# bug in Parse::Lex raised [rt.cpan.org #145702], per the following:
+	# 'Batch::Exec::Path::_TOKEN_' token is already defined at .../Parse/ALex.pm line nnn
+	# refer: https://rt.cpan.org/Ticket/Display.html?id=145702
+	# workaround this by manually deleting LEX_ symbols from this package.
+
+	my $purge = 0; foreach my $symbol (keys %Batch::Exec::Path::) {
+
+		if ($symbol =~ /$rel/) {
+
+			$self->log->trace("purging symbol [$symbol]");
+
+			delete $Batch::Exec::Path::{$symbol};
+
+			$purge++;
+		}
+	}
+	$self->log->debug("$purge [$rel] symbols purged");
 
 	return $count;
 }
@@ -971,38 +1019,27 @@ You can override the behaviour, particularly for WSL by passing a TYPE.
 
 sub tld {
 	my $self = shift;
-#	my $type = shift ; $self->type($type) if defined($type);
 	$self->type(shift) if (@_);
-#	my $path = shift ; $path = '' unless defined($path);
-#	$self->log->logconfess($self->msg) unless defined($self->type);
-
-	$self->dump_me(undef, "tld()");
 
 	my $type = (defined $self->type) ? $self->type : $self->unknown;
+	my $wslr = $self->wslroot;	# this does a parse/joiner combo
+
+	return $wslr if ($type eq 'wsl'	&& $self->is_known($wslr));
+
+	$self->log->debug(sprintf "wslr [$wslr] is unknown");
 
 	if ($self->on_cygwin) {
 
-		if ($type eq 'wsl') {
-			$self->parse($self->wslroot);
-		} else {
-			$self->parse($self->deu . DN_MOUNT_CYG);
-		}
+		$self->parse($self->deu . DN_MOUNT_CYG);
 
 	} elsif ($self->on_wsl) {
 
-		if ($type eq 'wsl') {
-			$self->parse($self->wslroot);
-		} else {
-			$self->parse($self->deu . DN_MOUNT_WSL);
-		}
+		$self->parse($self->deu . DN_MOUNT_WSL);
+
 	} elsif ($self->on_windows) {
 
-		if ($type eq 'wsl') {
-			$self->parse($self->wslroot);
-		} else {
+		$self->parse($self->winhome);
 
-			$self->parse($self->winhome);
-		}
 	} else {
 		$self->parse(DN_ROOT_ALL);
 	}
@@ -1011,8 +1048,8 @@ sub tld {
 
 =item OBJ->winhome
 
-Returns the name of the current "home drive" of the Windows user (not the
-home directory.  See also B<home>.
+Returns the name of the default "home" drive (as opposed to directory)
+for Windows users.  See also B<home>.
 
 =cut
 

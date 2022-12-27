@@ -13,7 +13,7 @@ use Harness;
 Log::Log4perl->easy_init($DEBUG);
 
 my $harn = Harness->new("hello");
-$harn->planned(630);
+$harn->planned(646);
 
 is($harn->this, "hello",		"this");
 
@@ -47,7 +47,7 @@ is($harn->cond('group2'), "group2 cycle=3",	"group2 third cond");
 
 # --- paths ---
 is(ref($harn->_path), "ARRAY",		"path hash");
-is(scalar(@{ $harn->_path }), 37,	"hash entries");
+is(scalar(@{ $harn->_path }), 38,	"hash entries");
 
 for(@{ $harn->_path }) {
 
@@ -97,16 +97,16 @@ is(scalar($harn->filter("volume", "c")), 3,	$harn->cond("volume"));
 is(scalar($harn->filter("volume", "D")), 1,	$harn->cond("volume"));
 
 @paths = $harn->invalid;
-is(scalar(@paths), 4,				$harn->cond("invalid"));
+is(scalar(@paths), 5,				$harn->cond("invalid"));
 @paths = $harn->valid;
 is(scalar(@paths), 33,				$harn->cond("valid"));
 
 
 # --- path functions ---
-is(scalar($harn->all_paths), 37,		$harn->cond("all_paths"));
+is(scalar($harn->all_paths), 38,		$harn->cond("all_paths"));
 is(scalar($harn->valid_paths), 33,		$harn->cond("valid_paths"));
-is(scalar($harn->linux), 24,			$harn->cond("linux"));
-is(scalar($harn->windows), 9,			$harn->cond("windows"));
+is(scalar($harn->linux), 25,			$harn->cond("linux"));
+is(scalar($harn->windows), 8,			$harn->cond("windows"));
 
 
 # --- fs2bs ---

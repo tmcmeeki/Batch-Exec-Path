@@ -28,7 +28,7 @@ my $log = get_logger(__FILE__);
 
 
 # -------- main --------
-$harn->planned(538);
+$harn->planned(545);
 
 my $o1 = Batch::Exec::Path->new;
 isa_ok($o1, $harn->this,		$harn->cond("class check"));

@@ -474,9 +474,10 @@ w=1=1=hostname=\=1=\\hostname\xxx
 w=1=1=server=\=1=\\server\Temp03a
 w=0=1=server=\=1=\\server\\Temp04
 w=1=1=wsl$=\=3=\\wsl$\Ubuntu\home\tomby
-w=1=1=none=\=2=\mnt\c\window\temp07
+l=1=1=none=\=2=/mnt/c/windows/temp07
 l=0=1=9=\=1=/cygdrive/9/hello.txt
 w=0=1=1=\=1=1:\hello.txt
+w=1=1=1=\=1=H:\hello.txt
 w=0=1=this=\=3=\\\\\\\\this\\\is\\wierd\\\\now
 w=1=1=none=\=1=\server\Temp02
 l=1=1=none=none=4=this/path has/some spaces/and'apostrophe

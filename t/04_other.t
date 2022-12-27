@@ -26,7 +26,7 @@ my $log = get_logger(__FILE__);
 
 
 # -------- main --------
-$harn->planned(136);
+$harn->planned(62);
 
 my $o0 = Batch::Exec::Path->new;
 isa_ok($o0, $harn->this,		$harn->cond("class check"));
@@ -133,39 +133,27 @@ for my $cond (sort keys %uxp) {
 # -------- tld --------
 is($o0->behaviour('u'), 'u',		$harn->cond("behaviour check"));
 is($o1->behaviour('w'), 'w',		$harn->cond("behaviour check"));
-$harn->cwul($o0, qw[  tld	/cygdrive  C:  /mnt    /  ]);
+$harn->cwul($o0, qw[  tld	 /cygdrive  C:   /mnt   /  ]);
+$harn->cwul($o1, qw[  tld	\\cygdrive  C:  \\mnt  \\  ]);
+
 $log->info("==== ==== ==== ==== ==== ==== ==== ==== ==== ====");
-$harn->cwul($o1, qw[  tld	\cygdrive  C:  \\mnt  \\  ]);
-exit -1;
+$harn->cwul($o0, qw[ tld wsl    //wsl$/Ubuntu    //wsl$/Ubuntu    //wsl$/Ubuntu  / ]);
+$harn->cwul($o1, qw[ tld wsl \\\\wsl$\\Ubuntu \\\\wsl$\\Ubuntu \\\\wsl$\\Ubuntu \\ ]);
 
-$harn->cwul($o0, qw[  tld wsl	/cygdrive  C:  /mnt    /  ]);
-exit -1;
-$harn->cwul($o1, qw[  tld wsl	\cygdrive  C:  \\mnt  \\  ]);
-
-$harn->cwul($o0, "tld", "", 		qw[ /cygdrive  C:  /mnt    /  ]);
-$harn->cwul($o1, "tld", "", 		qw[ \cygdrive  C:  \\mnt  \\  ]);
-exit -1;
-$harn->cwul($o0, "tld", undef, "c", "tmp",	"/cygdrive/c/tmp", "","/mnt", "");
-exit -1;
-
-is($o0->type("win"), "win",		$harn->cond("type override"));
-$harn->cwul($o0, qw[  tld  /cygdrive  ], "", "/mnt",  "");
-
-is($o0->type("wsl"), "wsl",		$harn->cond("type override"));
-$harn->cwul($o0, qw[  tld  /cygdrive  //wsl$/Ubuntu  //wsl$/Ubuntu], "");
-exit -1;
+$harn->cwul($o0, "tld", "", qw[  /cygdrive  C:  /mnt    /  ]);
+$harn->cwul($o1, "tld", "", qw[ \\cygdrive  C:  \\mnt  \\  ]);
 
 
 # -------- wslroot and wslhome --------
 #is($o1->parse("foo/bar/dummy"),	6,	$harn->cond("dummy parse"));
-my $re_wsr = qr[wsl\$\/\w+];
+my $re_wsr = qr[wsl\$.\w+];
 
 like($o1->wslroot, qr/.+/,		$harn->cond("wslroot has value"));
 
 $harn->cwul($o1, "wslroot", $re_wsr, $re_wsr, $re_wsr, $re_wsr);
 
 
-my $re_wsh = qr[wsl\$\/\w+\/home];
+my $re_wsh = qr[wsl\$.\w+.home];
 
 like($o1->wslhome, qr/.+/,		$harn->cond("wslhome has value"));
 

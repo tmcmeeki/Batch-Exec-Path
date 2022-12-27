@@ -20,7 +20,7 @@ my $log = $harn->log;
 
 
 # -------- main --------
-$harn->planned(126);
+$harn->planned(130);
 
 use_ok($harn->this);
 
@@ -37,7 +37,7 @@ isa_ok($o2, $harn->this,		$harn->cond("class check"));
 # -------- attributes --------
 my @cttr = $o1->Attributes;
 my @pttr = $obp->Attributes;
-is(scalar(@cttr) - scalar(@pttr), 22,	$harn->cond("class attributes"));
+is(scalar(@cttr) - scalar(@pttr), 23,	$harn->cond("class attributes"));
 is(shift @cttr, 'Batch::Exec::Path',	$harn->cond("class okay"));
 
 for my $attr (@cttr) {

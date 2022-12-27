@@ -23,7 +23,7 @@ my $log = get_logger(__FILE__);
 
 
 # -------- main --------
-$harn->planned(132);
+$harn->planned(136);
 
 my $o1 = Batch::Exec::Path->new('behaviour' => 'u');
 isa_ok($o1, $harn->this,		$harn->cond("class check"));
@@ -53,7 +53,6 @@ for my $rh ($harn->linux) {
 	ok(length($pno),		$harn->cond("joiner length"));
 	is($pno, $pni,			$harn->cond("joiner match lux"));
 
-#	last if ($pni =~ /temp07/);
 #	last if ($pni =~ /Temp03a/);
 }
 
@@ -71,6 +70,8 @@ for my $rh ($harn->windows) {
 
 	ok(length($pno),		$harn->cond("joiner length"));
 	is($pno, $pni,			$harn->cond("joiner match win"));
+
+	last if ($pni =~ /temp07/);
 }
 
 
