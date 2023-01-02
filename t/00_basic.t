@@ -96,36 +96,37 @@ if ($o1->like_unix) {
 }
 
 
-# -------- home --------
-my $reh = qr/(home|users)/i;
-
-isnt($o2->home, "",			$harn->cond("home defined"));
-like($o2->home, $reh,			$harn->cond("home matches"));
-
-is($o2->home("foo"), "foo",		$harn->cond("home override set"));
-is($o2->home, "foo",			$harn->cond("home override query"));
-like($o2->home(undef), $reh,		$harn->cond("home default"));
-
-$log->info(sprintf "HOME is [%s]", $o2->home);
-
-$harn->cwul($o1, "home", qr/cygdrive/, qr/Users/, qr/home/, qr/home/);
-
-
 # -------- extant --------
 is(-d ".", $o2->extant(".", 'd'),			$harn->cond("dot extant"));
 is(-d $o2->dn_start, $o2->extant($o2->dn_start, 'd'),	$harn->cond("dn_start extant"));
 is(-d $o2->home, $o2->extant($o2->home, 'd'),		$harn->cond("home extant"));
 
 
+# -------- homes --------
+my $homes = $o2->homes(1);
+ok($homes,			$harn->cond("homes force fetch"));
+is(ref($o2->userhome), "HASH",	$harn->cond("homes"));
+
+is($o2->homes, $homes,		$harn->cond("homes skip fetch"));
+
+
+# -------- is_known and is_unknown --------
+my $struk = $o1->unknown;
+like($struk, qr/unknown/,		$harn->cond("unknown string"));
+is($o1->is_known($struk), 0,		$harn->cond("is_known positive"));
+is($o1->is_unknown($struk), 1,		$harn->cond("is_unknown positive"));
+
+is($o1->is_known("xxx"), 1,		$harn->cond("is_known negative"));
+is($o1->is_unknown("xxx"), 0,		$harn->cond("is_unknown negative"));
+
+is($o1->is_known("has_unknown_"), 0,	$harn->cond("is_known regexp"));
+is($o1->is_unknown("has_unknown_"), -1,	$harn->cond("is_unknown regexp"));
+is($o1->is_unknown("/some/path/_unknown_"), -1,	$harn->cond("is_unknown regexp"));
+
+
 # -------- winhome --------
 isnt($o2->winhome, "",			$harn->cond("winhome non-blank"));
 like($o2->winhome, qr/\w+:/,		$harn->cond("winhome regexp"));
-
-
-#-------- winuser --------
-#isnt($o2->winuser, undef,	$harn->cond("winuser simple"));
-my $re_wu = qr/\w+/;
-$harn->cwul($o2, "winuser", $re_wu, $re_wu, $re_wu, $re_wu);
 
 
 __END__

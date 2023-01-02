@@ -132,9 +132,9 @@ use parent 'Batch::Exec';
 use Carp qw(cluck confess);
 use Data::Dumper;
 
-#use File::Spec;
+use File::Spec;
 #use Logfer qw/ :all /;
-#use File::Spec::Unix qw/ :ALL /;
+#use File::Basename;
 #require File::Spec::Win32;
 require File::HomeDir;
 #require Path::Class;
@@ -146,9 +146,12 @@ use Parse::Lex;
 
 # --- package constants ---
 use constant ENV_WINHOME => $ENV{'HOMEDRIVE'};
+use constant ENV_WINPATH => $ENV{'HOMEPATH'};
 
-use constant DN_MOUNT_WSL => "mnt";
+use constant DN_DIST_WSL => "Ubuntu";	# add if missing (certain contexts)
+use constant DN_DRIVE_DFL => "c";	# add if missing (certain contexts)
 use constant DN_MOUNT_CYG => "cygdrive";
+use constant DN_MOUNT_HYB => "mnt";
 use constant DN_WINHOME => (ENV_WINHOME) ? ENV_WINHOME : "c:";
 
 use constant DN_ROOT_ALL => '/';	# the default root
@@ -163,7 +166,8 @@ use constant RE_SHELLIFY => qr=[\s\$\\\/\']=;	# norty characters for shells
 
 use constant STR_DELIM_U => '/';	# the forward-slash for unix
 use constant STR_DELIM_W => '\\';	# the back-slash for windows
-use constant STR_PREMATURE => "FATAL method called prematurely; have you called parse() method";			# error message for method ordering
+use constant STR_PREMATURE => "method called prematurely; have you called parse() method";			# error message for method ordering
+use constant STR_TILDE => '~';		# correlates to home directory
 use constant STR_UNKNOWN => "_unknown_";
 
 
@@ -179,6 +183,7 @@ our $VERSION = sprintf "%d.%03d", q[_IDE_REVISION_] =~ /(\d+)/g;
 
 # --- package locals ---
 #my $_n_objects = 0;
+my %_userhome;
 
 my %_attribute = (	# _attributes are restricted; no direct get/set
 	_home => undef,		# a reliable version of user's home directory
@@ -192,18 +197,19 @@ my %_attribute = (	# _attributes are restricted; no direct get/set
 	homed => undef,
 	hybrid => undef,
 	letter => undef,
-	mount => undef,
 	msg => STR_PREMATURE,
 	raw => undef,		# the raw path passed into a parse function
 	res => RE_SHELLIFY,
 	reu => RE_DELIM_U,
 	rew => RE_DELIM_W,
-	root => undef,		# placeholder for root component
+#	root => undef,		# placeholder for root component
 	server => undef,
 	shellify => 0,		# converts \ to \\ for DOS-like shell exits
 	type => undef,
 	unc => undef,
 	unknown => STR_UNKNOWN,	# stringy failsafe
+	userhome => \%_userhome,	# see homes() method
+	user => undef,		# populated during parse
 	volumes => [],
 );
 
@@ -253,21 +259,10 @@ sub new {
 			$self->{'_have'}->{$attr} = $attr{'_have'}->{$attr};
 		}
 	}
-#	$self->{'_id'} = ++${ $self->{'_n_objects'} };
-#	$self->{'_id'} = ++$_n_objects;
 	$self->behaviour(($self->on_windows) ? "w" : "u");
 	$self->home;
-	if ($self->on_cygwin) {
+	$self->homes;
 
-		$self->mount(DN_MOUNT_CYG);
-
-	} elsif ($self->on_wsl) {
-
-		$self->mount(DN_MOUNT_WSL);
-
-	} else {
-		$self->mount(DN_ROOT_ALL);
-	}
 	while (my ($method, $value) = each %args) {
 
 		confess "SYNTAX new(, ...) value not specified"
@@ -277,6 +272,18 @@ sub new {
 
 		$self->$method($value);
 	}
+	$self->lov("_register", 'abs', { 0 => "relative", 1 => "absolute" });
+
+	$self->lov("_register", 'homed', { 0 => "no reference to home directory", 1 => "home directory referenced" });
+
+	$self->lov("_register", 'hybrid', { 0 => "path does not indicate a hybrid platform", 1 => "path indicates a hybrid platform" });
+
+	my %types = ('cyg' => "Cygwin (hybrid)", 'lux' => "linux or unix", 'nfs' => "networked file system", 'win' => "MSWin-related", 'wsl' => "WSL on MSWin", 'hyb' => "Other hybrid (e.g. WSL)");
+
+	$self->lov("_register", 'type', \%types);
+
+	$self->lov("_register", 'unc', { 0 => "this is not a UNC path", 1 => "this is a UNC path" });
+
 	return $self;
 }
 
@@ -345,10 +352,329 @@ sub connector {
 	return $self->dew;
 }
 
+=item OBJ->convert_home(USER)
+
+Determine a user's home directory and re-parse.
+
+=cut
+
+sub convert_home {
+	my $self = shift;
+	my $user = shift; $user = $self->user unless defined($user);
+	$self->cough($self->msg) unless defined($self->type);
+	confess "SYNTAX convert_home(USER)" unless defined($user);
+
+#	$self->log->debug($self->dump($self->userhome, "userhome"));
+
+	$self->log->info("attempting home directory conversion ($user)");
+
+	my $dnh; if (exists $self->userhome->{$self->user}) {
+
+		$dnh = $self->userhome->{$self->user};
+
+	} else {
+
+		my $homes = ($self->type eq 'win') ? $self->winhome : File::Spec->catdir("", FN_HOME);
+
+		$dnh = File::Spec->catdir($homes, $self->user);
+	}
+
+	$self->parse($dnh);
+
+	return $self->joiner("convert_home()");
+}
+
+=item OBJ->convert_volumes(TYPE_FROM, TYPE_TO)
+
+Attempt to convert volumes according to the type passed.  Volumes are important
+for a number of target types, e.g. cyg, hyb, win, wsl and for UNC paths.
+Key pre-requisites are checked, e.g. drive letter and/or server.
+
+=cut
+
+sub convert_volumes {
+	my $self = shift;
+	my $typA = shift;	# from (previously $self-type (now cleared!)
+	my $typB = shift;	# to be type
+#	$self->cough($self->msg) unless defined($self->type);
+	confess "SYNTAX convert_volumes(TYPE)" unless (
+		defined($typA) && defined($typB));
+
+	$self->log->info("converting volumes from [$typA] to [$typB]");
+
+	my $n_vol = scalar(@{ $self->volumes });
+	my $rav = $self->volumes;
+	my $reh = $self->cat_re(1, DN_MOUNT_HYB, DN_MOUNT_CYG);
+	my $msg = "WARNING unassigned %s";
+	my $e_typ = "ERROR unexpected type [$typB]";
+
+	my $f_hve = (@$rav && $rav->[0] =~ $reh) ? 1 : 0; # hybrid volumes exist
+	$self->log->debug("f_hve [$f_hve] n_vol [$n_vol]");
+
+	$self->default("type", $typB);
+
+	# check some pre-requisites
+
+	if ($self->unc) {
+
+		$self->log->warn($self->dump($msg, "server"))
+			unless (defined $self->server);
+
+		$self->log->warn($self->dump($msg, "volume (UNC)"))
+			unless ($n_vol);
+
+		return;
+
+	} elsif ($n_vol > 2) {
+#		($n_vol != 2 && $self->type ne 'win'
+#		&& $self->type ne 'nfs'
+#		&& $self->type ne 'lux')
+
+		# considerations for < two volumes
+		# win:  c:\Temp\abc.txt		volumes array ['c:']
+		# nfs:  hosty:/tmp		volumes array []
+		# lux:  /home/jbloggs		volumes array []
+
+		$self->cough("unexpected volume count [$n_vol]");
+
+	} elsif (!defined($self->letter)) {
+
+		# different path types may not have a drive letter
+#		$self->type ne 'nfs' && $self->type ne 'wsl' && $self->type ne 'lux'
+		if ($typB eq 'cyg' || $typB eq 'hyb') {
+
+#			$self->cough($self->dump($msg, "drive letter"));
+			$self->log->warn($self->dump($msg, "drive letter, assigning default"));
+			$self->drive_letter(DN_DRIVE_DFL);
+		}
+	}
+
+	if ($typB eq 'cyg') {
+
+		# special case:  cygwin recognises wslroot!
+
+		unless ($typA eq 'wsl') {
+
+			# we're going to re-write the volumes
+			# if you don't want this then use 'lux' type!
+
+			$self->volumes([]);
+
+			push @{ $self->volumes }, DN_MOUNT_CYG;
+			push @{ $self->volumes }, $self->letter;
+		}
+
+	} elsif ($typB eq 'hyb') {
+
+		# we're going to re-write the volumes
+		# if you don't want this then use 'lux' type!
+		$self->volumes([]);
+
+		# special case:  hybrid does not know about wslroot, so
+		# we're going to keep volumes empty
+
+		unless ($typA eq 'wsl') {
+
+			push @{ $self->volumes }, DN_MOUNT_HYB;
+			push @{ $self->volumes }, lc($self->letter); # LOWERCASE
+		}
+
+	} elsif ($typB eq 'lux') {
+
+		# use cases to clear volumes:
+		# /wsl$/Ubuntu/home/jbloggs	volumes array ['wsl$', 'Ubuntu']
+
+		$self->volumes([]);
+
+	} elsif ($typB eq "nfs") {
+
+		# watching for \\server\c$\tmp --> server:/c$/tmp
+		# watching for /hybrid/c/tmp --> undefined (maybe just /tmp)
+		# watching for c:\tmp --> just /tmp
+		# watching for \\wsl$\Ubuntu --> just / (i.e. WSL unknown)
+
+		if ($f_hve) {
+			shift @$rav;
+
+			shift @$rav
+				if (@$rav && $rav->[0] eq $self->letter);
+
+		} elsif ($n_vol && $rav->[0] eq DN_ROOT_WSL) {
+
+			$self->volumes([]);
+
+		} elsif ($n_vol && defined($self->drive) && $rav->[0] eq $self->drive) { # C:
+
+			shift @$rav;
+		}
+
+	} elsif ($typB eq 'win') {
+
+		# special case:  win knows that wslroot is special
+
+		if ($typA eq 'wsl') {
+
+			$self->set("type", 'wsl');
+		} else {
+
+			# we're going to re-write the volumes
+			$self->volumes([]);
+
+			push @{ $self->volumes }, DN_MOUNT_CYG;
+			push @{ $self->volumes }, $self->letter;
+		}
+
+	} elsif ($typB eq 'wsl') {
+
+		if (defined $self->server) {
+
+			$self->log->debug("GOT HERE 1");
+
+		} elsif ($f_hve) {
+
+			$self->log->debug("GOT HERE 2");
+
+			shift @$rav;
+
+			shift @$rav
+				if (@$rav && $rav->[0] eq $self->letter);
+
+			$self->set("type", "win");
+
+		} elsif ($typA eq 'lux' || $typA eq 'win') {
+
+			# interesting scenarios: c:\tmp > \\wsl$\Ubuntu\tmp
+			$self->volumes([]);
+
+			my $dn_dist = $self->wsl_dist;
+			$dn_dist = DN_DIST_WSL unless defined($dn_dist);
+
+			push @{ $self->volumes }, DN_ROOT_WSL;
+			push @{ $self->volumes }, $dn_dist;
+
+		} elsif ($n_vol && defined($self->drive) && $rav->[0] eq $self->drive) { # C:
+#		} elsif ($n_vol && $rav->[0] eq $self->drive) { # C:
+			$self->log->debug("GOT HERE 3");
+
+			shift @$rav;
+		}
+	} else {
+		$self->cough($e_typ);
+	}
+	return $self->type;
+}
+
+=item OBJ->convert(TYPE, [PATH])
+
+Converts the set of parsed path components to a pathname compatible with TYPE.
+This method assumes that the B<parse> method has already been called.
+The TYPE parameter must be one of: { cyg, lux, nfs, win, wsl }.
+
+=cut
+
+sub convert {
+	my $self = shift;
+	my $typB = shift;	# NOT TO BE CONFUSED WITH $self->type
+	$self->cough($self->msg) unless defined($self->type);
+	confess "SYNTAX convert(TYPE)" unless defined($typB);
+
+	$self->behaviour(($typB eq 'win' || $typB eq 'wsl') ? 'w' : 'u');
+	$self->log->info($self->dump("to type [%s] behaviour [%s]", $typB, $self->behaviour));
+
+	my $old = $self->joiner("convert(old)");
+#	$self->log->debug("==== xxxx ==== xxxx ==== xxxx ====");
+	my $typA = $self->type;
+	my $ret = STR_TILDE;
+	my $raf = $self->folders;
+	my $f_tll = (@$raf && $raf->[0] =~ qr/^$ret/) ? 1 : 0; # home dir like
+
+	$self->log->debug("ret [$ret] f_tll [$f_tll]");
+
+	# handle special conversions and exclusions
+
+	my $skip = 1; if ($self->homed && $f_tll) {
+
+		return $self->convert_home;
+
+	} elsif ($typB eq $typA) {
+
+		$self->log->info("skipping conversion of same type [$typB]");
+
+	} elsif (!$self->abs) {
+
+		$self->log->info("relative behaviour conversion only");
+
+	} else {
+		$skip = 0;
+
+	};
+	return $old if ($skip); # conversion is redundant
+
+	$self->type(undef); # force this to be populated during conversion
+
+	my $desA = $self->lov("_lookup", "type", $typA);
+	my $desB = $self->lov("_lookup", "type", $typB);
+
+	$self->log->info("converting [$typA] ($desA) to [$typB] ($desB)");
+
+	my $msg; if ($typB eq "cyg") {
+
+		$self->convert_volumes($typA, $typB);
+
+#		$self->set("type", $typB);
+
+		# special case:  cygwin recognises wslroot!
+
+		$self->set("type", 'wsl') if ($typA eq 'wsl');
+
+	} elsif ($typB eq "hyb") {
+
+		$self->convert_volumes($typA, $typB);
+
+#		$self->set("type", $typB);
+
+	} elsif ($typB eq "lux") {
+
+		$self->convert_volumes($typA, $typB);
+
+#		$self->set("type", $typB);
+
+	} elsif ($typB eq "nfs") {
+
+		$self->convert_volumes($typA, $typB);
+
+		if (defined $self->server) {
+			$self->set("type", $typB)
+		} else {
+			$self->set("type", "lux");
+		}
+
+	} elsif ($typB eq "win") {
+
+		$self->convert_volumes($typA, $typB);
+
+#		$self->set("type", $typB);
+
+	} elsif ($typB eq "wsl") {
+
+		$self->convert_volumes($typA, $typB);
+	}
+	if (defined $msg) {
+
+		my $err = sprintf "WARNING cannot convert [$old] to [$typB]";
+
+		$self->log->logwarn(join ": ", $err, $msg);
+
+		return $old;
+	}
+	return $self->joiner("convert(new)");
+}
+
 =item OBJ->default(ATTRIBUTE, VALUE)
 
-Default the attribute to the value.  Defaulting only sets the value if it
-hasn't already been set.
+Default the attribute to the value passed.
+Defaulting only sets the value if it hasn't already been set.
+This is the correlating method to B<set>.
 
 =cut
 
@@ -356,23 +682,10 @@ sub default {
 	my $self = shift;
 	my $prop = shift;
 	my $value = shift;
-	confess "SYNTAX default(EXPR, EXPR)" unless (
+	confess "SYNTAX default(ATTRIBUTE, VALUE)" unless (
 		defined($prop) && defined($value));
 
-	$self->cough("attribute [$prop] does not exist")
-		unless (exists $self->{$prop});
-
-	return $self->{$prop}
-		unless (defined $value);
-
-	return $self->{$prop}
-		if (defined $self->{$prop});
-
-	$self->log->debug("prop [$prop] value [$value]");
-
-	$self->{$prop} = $value;
-
-	return $value;
+	return $self->lov("_default", $prop, $prop, $value);
 }
 
 =item OBJ->drive_letter(EXPR)
@@ -389,12 +702,11 @@ sub drive_letter {
 	my $self = shift;
 	my $str = shift;
 	confess "SYNTAX drive_letter(EXPR)" unless defined($str);
-#	$self->log->logconfess($self->msg) unless defined($self->type);
+#	$self->cough($self->msg) unless defined($self->type);
 
 	my $drive = $str;
 
 	unless ($drive =~ /\$$/) {	# special drive '$'
-#		$drive .= ":" if ($self->on_windows && ! $drive =~ /:$/);
 		$drive .= ":" unless ($drive =~ /:$/);
 	}
 
@@ -402,13 +714,8 @@ sub drive_letter {
 
 	$self->log->debug(sprintf "letter [$letter] on_windows [%d]", $self->on_windows);
 
-#	$letter =~ s/[:\$]$//;
 	$letter =~ s/:$//;	# a trailing $ is important; do not strip
 
-#	if ($self->on_linux && ! $self->on_wsl) {
-#		$drive = $self->unknown;
-#		$letter = $self->unknown;
-#	}
 	$self->log->debug("drive [$drive] letter [$letter]");
 
 	$self->drive($drive);
@@ -432,10 +739,10 @@ sub escape {
 	my $self = shift;
 #	if (@_) { $self->dummy(shift) };
 	my $method = shift ; $method = 'b' unless defined($method);
-	$self->log->logconfess($self->msg) unless defined($self->type);
+	$self->cough($self->msg) unless defined($self->type);
 	confess "SYNTAX escape(METHOD)" unless defined($method);
 
-	my $pni = $self->joiner;
+	my $pni = $self->joiner("escape()");
 
 	my $pno; if ($method eq 'q') {
 
@@ -488,31 +795,111 @@ sub extant {
 	return $rv;
 }
 
-=item OBJ->home
+=item OBJ->home([USER])
 
-Read-only method advises a generally failsafe home directory for user.
+Read-only method advises a generally failsafe home directory for the current
+or specified user.
 
 =cut
 
 sub home {
 	my $self = shift;
+	my $user = shift;
 
-	my $dn; if (@_) {
+	my $dn; if (defined($user)) {
 
-		$dn = shift;
+		unless (exists $self->userhome->{$user}) {
 
-		$self->{'_home'} = $dn;
-	}
-	if (defined $self->{'_home'}) {
+			$self->log->logwarn("no home entry for user [$user]");
 
-		$dn = $self->{'_home'};
+			return undef;
+		}
+		$dn = $self->userhome->{$user};
 	} else {
-		my $env = ($self->on_windows) ? $ENV{'USERPROFILE'} : $ENV{'HOME'};
-		$dn = ($env eq '') ? File::HomeDir->my_home : $env;
+		if (defined $self->{'_home'}) {
 
-		$self->{'_home'} = $dn;
+			$dn = $self->{'_home'};
+		} else {
+			my $env = ($self->on_windows) ? $ENV{'USERPROFILE'} : $ENV{'HOME'};
+			$dn = ($env eq '') ? File::HomeDir->my_home : $env;
+
+		}
 	}
+	$self->{'_home'} = $dn;
+
 	return $dn;
+}
+
+=item OBJ->homes([BOOLEAN])
+
+For the unices, cache a table of user's home directories.  This is done
+once for the whole class during construction, but can be called at anytime for
+the purpose of refreshing the cache, by passing a true boolean.
+Returns a count of records cached.
+
+=cut
+
+sub homes {
+	my $self = shift;
+	my $force = shift; $force = 0 unless defined($force);
+
+	my $rau = $self->userhome;
+	my $users = scalar(keys %$rau);
+
+	$self->log->debug("users [$users] force [$force]");
+
+	if ($users && !$force) {
+		$self->log->info("skipping home directory fetch");
+
+		return $users;
+	}
+	%{ $self->userhome } = ();
+	$self->log->info("fetching user home directories");
+
+	my $count = 0; if ($self->like_unix) {
+
+		while (my ($user, undef, undef, undef, undef, undef, undef, $home) = getpwent) {
+#			next unless (-d $home);
+
+			unless (exists $rau->{$user}) {
+
+				$rau->{$user} = $home;
+
+				$count++;
+			}
+		}
+		endpwent;
+	} else {
+		my $home = ENV_WINHOME . ENV_WINPATH;
+		my @home = split($self->rew, $home);
+
+		pop @home;
+		$home = join $self->dew, @home, '*';
+
+        	$self->log->trace(sprintf "home [$home] home [%s]", Dumper(\@home));
+		my @homes = glob($home);
+
+		$self->log->trace(sprintf "homes [%s]", Dumper(\@homes));
+
+		for $home (@homes) {
+
+			next unless (-d $home);
+
+			@home = split($self->rew, $home);
+
+			my $user = pop @home;
+			
+        		$self->log->trace("home [$home] user [$user]");
+
+	                $rau->{$user} = $home;
+
+			$count++;
+		}
+	}
+        $self->log->debug(sprintf "rau [%s]", Dumper($rau));
+	$self->log->info("$count user home directories fetched");
+
+	return $count;
 }
 
 =item OBJ->is_known(EXPR)
@@ -559,24 +946,34 @@ sub is_unknown {
 	return 0;
 }
 
-=item OBJ->joiner
+=item OBJ->joiner([EXPR])
 
-Joins components together into a pathname.  This method assumes that 
-the B<parse> method has already been called.
+Joins the set of parsed path components together into a pathname, and
+checks for existence.
+The EXPR parameter can be used to supply some debugging context, as this 
+routine is called multiple times within this package.
+This method assumes that the B<parse> method has already been called.
 
 =cut
 
 sub joiner {
 	my $self = shift;
-	$self->log->logconfess($self->msg) unless ( defined($self->type)
+	my $context = shift; $context = "joiner()" unless defined($context);
+	$self->cough($self->msg) unless ( defined($self->type)
 		&& defined($self->abs)
 		&& defined($self->unc)
 	);
 	my @parts;
 
-	$self->dump_me(undef, "joiner()");
+	$self->dump_me(undef, $context);
 
-	if ($self->unc || $self->type eq 'wsl') {  # file-share or WSL format
+	if ($self->type eq 'nfs') {
+
+		push @parts, $self->server . ':' if (defined($self->server));
+
+		push @parts, @{ $self->volumes };
+
+	} elsif ($self->unc || $self->type eq 'wsl') {  # file-share or WSL format
 
 		push @parts, undef;
 
@@ -584,14 +981,16 @@ sub joiner {
 
 		push @parts, @{ $self->volumes };
 
-	} elsif ($self->type eq 'nfs') {
+	} elsif ($self->type eq 'win') {
 
-		push @parts, $self->server . ':';
+		if (defined $self->drive) {
 
-	} elsif ($self->type eq 'win') {# && $self->behaviour eq 'w') {
+			push @parts, $self->drive;
 
-		push @parts, $self->drive;
+		} elsif ($self->abs) {
 
+			push @parts, undef;
+		}
 	} else {		# local format (no server component)
 
 		push @parts, undef if ($self->abs);
@@ -601,14 +1000,14 @@ sub joiner {
 
 	push @parts, @{ $self->folders };
 
-	$self->log->debug(sprintf "parts [%s]", Dumper(\@parts));
+#	$self->log->debug(sprintf "parts [%s]", Dumper(\@parts));
 
 	for (my $ss = 0; $ss < @parts; $ss++) {
 
 		$parts[$ss] = $self->connector
 			unless(defined $parts[$ss]);
 	}
-	$self->log->debug(sprintf "parts [%s]", Dumper(\@parts));
+#	$self->log->debug(sprintf "parts [%s]", Dumper(\@parts));
 
 	my $pn = join($self->connector, @parts);
 
@@ -619,37 +1018,13 @@ sub joiner {
 		$pn =~ s/^$re// if ($pn =~ /^$re$re/);
 	}
 
-	$self->log->debug("pn [$pn]");
+	# check existence, except if it is a network share!
+	$self->exists($self->extant($pn)) unless (
+		defined($self->server));# || 
 
-	$self->exists($self->extant($pn));
+	$self->log->info("joined [$pn]");
 
 	return $pn;
-}
-
-=item OBJ->dump_nice(EXPR)
-
-A wrapper for Data::Dumper to flatten the output.
-Self-referencial call to EXPR method.
-
-=cut
-
-sub dump_nice {
-	my $self = shift;
-	my $attr = shift;
-
-	no strict 'refs';
-
-	my $struct = Dumper($self->$attr);
-
-	$struct =~ s/.+VAR[^\[]+//;
-	$struct =~ s/[\;\n]//gm;
-	$struct =~ s/\s+/ /g;
-
-#	$self->log->debug("struct =$struct=");
-
-	my $nice = "$attr $struct";
-
-	return $nice;
 }
 
 =item OBJ->dump_me(Parse::Token)
@@ -663,30 +1038,38 @@ sub dump_me {
 	my $self = shift;
 	my $token = shift;
 	my $context = (@_) ? join(' ', @_) : undef;
-#	confess "SYNTAX dump_me(Parse::Token)" unless (
-#		defined($token) && ref($token) eq 'Parse::Token');
 
-	my $null = '(undef)';
+#	my $null = '(-)';
+	my $null = "";
 	my $fdt = (defined($token) && ref($token) =~ /^Parse::Token/) ? 1 : 0;
-#	$self->log->debug(sprintf "ref [%s]", ref($token));
+#	my @attr = qw/ abs drive letter exists homed hybrid type unc behaviour server user /;
+	my @attr = qw/ abs drive letter unc homed exists hybrid behaviour type user server /;
 
 	unless (defined $context) {
 		$context = ($fdt) ? $token->name : $self->unknown;
 	}
 
-	$self->log->debug(sprintf "==== PARSE ATTRIBUTES $context ====");
+	$self->log->debug(sprintf "==== START attributes $context ====");
 
-	$self->log->debug($self->dump_nice("folders"));
-	$self->log->debug($self->dump_nice("volumes"));
-	$self->log->debug(sprintf "abs [%s]", (defined $self->abs) ? $self->abs : $null);
-	$self->log->debug(sprintf "drive [%s]", (defined $self->drive) ? $self->drive : $null);
-	$self->log->debug(sprintf "exists [%s]", (defined $self->exists) ? $self->exists : $null);
-	$self->log->debug(sprintf "homed [%s]", (defined $self->homed) ? $self->homed : $null);
-	$self->log->debug(sprintf "hybrid [%s]", (defined $self->hybrid) ? $self->hybrid : $null);
-	$self->log->debug(sprintf "mount [%s]", (defined $self->mount) ? $self->mount : $null);
-	$self->log->debug(sprintf "server [%s]", (defined $self->server) ? $self->server : $null);
-	$self->log->debug(sprintf "type [%s]", (defined $self->type) ? $self->type : $null);
-	$self->log->debug(sprintf "unc [%s]", (defined $self->unc) ? $self->unc : $null);
+	$self->log->debug($self->dump($self->folders, "folders"));
+	$self->log->debug($self->dump($self->volumes, "volumes"));
+
+	my $count = 0;
+	my $str = "";
+
+	for my $attr (@attr) {
+
+		no strict 'refs';
+
+		$str .= sprintf "%6s [%s]  ", $attr, (defined $self->$attr) ? $self->$attr : $null;
+		if (++$count % 3 == 0) {
+
+			$self->log->debug($str);
+
+			$str = "";
+		}
+	}
+	$self->log->debug($str) unless ($str eq "");
 
 	my $rv; if ($fdt) {
 
@@ -696,7 +1079,7 @@ sub dump_me {
 	} else {
 		$rv = undef;
 	}
-	$self->log->debug(sprintf "==== END OF ATTRIBUTES ====");
+	$self->log->debug(sprintf "==== END attributes $context ====");
 
 	return $rv;
 }
@@ -743,9 +1126,9 @@ sub lexer {
 
 		my $token = $self->dump_me(shift @_);
 
-		$self->hybrid(1);
-		$self->type("wsl");
-		$self->unc(0);
+		$self->set("hybrid", 1);
+		$self->set("type", "wsl");
+		$self->set("unc", 0);
 
 		push @{ $self->volumes }, $token;
 
@@ -779,7 +1162,7 @@ sub lexer {
 		my $token = $self->dump_me(shift @_);
 
 		$self->default('abs', 1);
-		$self->default('type', "lux");
+		$self->default("type", "lux");
 		$self->default('unc', 1);
 
 		$lexer->start('unchost');
@@ -791,7 +1174,7 @@ sub lexer {
 		my $token = $self->dump_me(shift @_);
 
 		$self->default('abs', 1);
-		$self->default('type', "win");
+		$self->default("type", "win");
 		$self->default('unc', 1);
 
 		$lexer->start('unchost');
@@ -810,9 +1193,9 @@ sub lexer {
 #		if ($token =~ /\\/) {
 		if ($token =~ $self->rew) {
 
-			$self->default('type', "win");
+			$self->default("type", "win");
 		} else {
-			$self->default('type', "lux");
+			$self->default("type", "lux");
 		}
 
 		$token;
@@ -821,7 +1204,7 @@ sub lexer {
 
 		my $drive = $self->dump_me(shift @_);
 
-		$self->default('type', "win");
+		$self->default("type", "win");
 
 		$self->drive_letter($drive);
 
@@ -836,22 +1219,25 @@ sub lexer {
 
 		my $server = $self->trim($token, qr/:$/);
 
-		$self->default('type', "nfs");
+		$self->default("type", "nfs");
 
 		$self->server($server);
 
 		$token;
 	},
-	qw(LEX_HOME  ~), sub {
+#	qw(LEX_HOME  ~), sub {
+	qw(LEX_HOME  ~[\.\w\d\s\-\_]*), sub {
 
 		my $token = $self->dump_me(shift @_);
 
+		my $user = $token; $user =~ s/^\~//;
+
+		$self->user(($user eq '') ? $self->whoami : $user);
+
 		# tilde is a symbolic reference to an absolute path
 		# but is still treated as a relative path
-#		$self->default('abs', 1);
-		$self->abs(0);
-		$self->homed(1);
-#		$self->default('type', "lux");
+		$self->set("abs", 0);
+		$self->set("homed", 1);
 
 		push @{ $self->folders }, $token;
 
@@ -861,8 +1247,8 @@ sub lexer {
 
 		my $token = $self->dump_me(shift @_);
 
-		$self->type("cyg");
-		$self->hybrid(1);
+		$self->set("type", "cyg");
+		$self->set("hybrid", 1);
 
 #		push @{ $self->volumes }, $token;
 		push @{ $self->folders }, $token;
@@ -876,42 +1262,47 @@ sub lexer {
 #	qw(LEX_FOLDER  [\s\.\w]+), sub {
 	qw(LEX_FOLDER  [\.\'\s\w\d\-\_]+), sub {
 
-		my $folder = $self->dump_me(shift @_);
+		my $dn = $self->dump_me(shift @_);
+		my $n_folders = scalar(@{ $self->folders });
+		my $re_hom = $self->cat_re(1, FN_HOME, FN_USER);
 
-		$self->log->debug("folder [$folder]");
-
-		if ($folder =~ $self->cat_re(1, FN_HOME, FN_USER)) {
-
-			$self->log->debug("GOT A HOME DIR");
-
-			$self->homed(1);
-		}
+		$self->log->debug("dn [$dn] n_folders [$n_folders] re_hom [$re_hom]");
 		$self->default('abs', 0);
 
-		my $fpf = 1; if (scalar(@{ $self->folders }) == 1) {
+		if ($dn =~ $re_hom) {
+
+			$self->set("homed", 1);
+
+		} elsif ($self->homed) {
+		
+			$self->user($dn) if ($n_folders &&
+				$self->folders->[$n_folders - 1] =~ $re_hom);
+		}
+
+		my $fpf = 1; if ($n_folders == 1) {
 
 			my $parent = $self->folders->[0];
 
-			my $re = $self->cat_re(1, DN_MOUNT_WSL, DN_MOUNT_CYG);
+			my $re = $self->cat_re(1, DN_MOUNT_HYB, DN_MOUNT_CYG);
+
 			if ($parent =~ $re) {
 
-				$self->log->debug("got here FOLDER");
-
-				$self->drive_letter($folder);
+				$self->drive_letter($dn);
 
 				shift @{ $self->folders };
 
 				push @{ $self->volumes }, $parent;
-				push @{ $self->volumes }, $folder;
+				push @{ $self->volumes }, $dn;
 
 				$fpf = 0;
 
-				$self->hybrid(1);
+#				$self->set("hybrid", 1);
+				$self->default("hybrid", 1);
 			}
 		}
-		push @{ $self->folders }, $folder if ($fpf);
+		push @{ $self->folders }, $dn if ($fpf);
 
-		$folder;
+		$dn;
 	},
 	qw(LEX_ERROR  .*), sub {
 
@@ -951,6 +1342,7 @@ sub parse {
 	$self->server(undef);
 	$self->type(undef);
 	$self->unc(undef);
+	$self->user(undef);
 	$self->volumes([]);
 
 	my ($rel, $lex) = $self->lexer;
@@ -1009,6 +1401,23 @@ sub separator {
 	return $self->rew;
 }
 
+=item OBJ->set(ATTRIBUTE, VALUE)
+
+Set the attribute to the value passed.
+This is the correlating method to B<default>.
+
+=cut
+
+sub set {
+	my $self = shift;
+	my $prop = shift;
+	my $value = shift;
+	confess "SYNTAX set(ATTRIBUTE, VALUE)" unless (
+		defined($prop) && defined($value));
+
+	return $self->lov("_set", $prop, $prop, $value);
+}
+
 =item OBJ->tld([TYPE])
 
 Return the top-level path component for a hybrid OS, e.g. cygwin or mnt.
@@ -1019,7 +1428,8 @@ You can override the behaviour, particularly for WSL by passing a TYPE.
 
 sub tld {
 	my $self = shift;
-	$self->type(shift) if (@_);
+	$self->lov("_set", "type", "type", shift) if (@_);
+#	$self->type(shift) if (@_);
 
 	my $type = (defined $self->type) ? $self->type : $self->unknown;
 	my $wslr = $self->wslroot;	# this does a parse/joiner combo
@@ -1034,7 +1444,7 @@ sub tld {
 
 	} elsif ($self->on_wsl) {
 
-		$self->parse($self->deu . DN_MOUNT_WSL);
+		$self->parse($self->deu . DN_MOUNT_HYB);
 
 	} elsif ($self->on_windows) {
 
@@ -1043,13 +1453,14 @@ sub tld {
 	} else {
 		$self->parse(DN_ROOT_ALL);
 	}
-	return $self->joiner;
+	return $self->joiner("tld()");
 }
 
 =item OBJ->winhome
 
 Returns the name of the default "home" drive (as opposed to directory)
-for Windows users.  See also B<home>.
+for Windows users.
+See also B<home>.
 
 =cut
 
@@ -1062,43 +1473,6 @@ sub winhome {
 	$self->log->debug(sprintf "drv [$drv]");
 
 	return DN_WINHOME;
-}
-
-=item OBJ->winuser
-
-Returns the name of the current Windows user (Windows-like platforms only).
-This makes a call to Powershell.  If that is not possible or returns no
-value then a failsafe PERL-native call is made.
-
-=cut
-
-sub winuser {
-	my $self = shift;
-
-	$self->echo(1);	# debugging
-	my $cmd; if ($self->on_windows) {
-
-		$cmd = q{powershell.exe "$env:UserName"};
-
-	} elsif ($self->like_windows) {
-
-		$cmd = q{powershell.exe '$env:UserName'};
-	} else {
-		$cmd = q{pwsh '$env:UserName'};
-	}
-	my @result = $self->c2a($cmd);
-
-	unless (scalar @result) {
-
-		$self->log->warn("[$cmd] produced no result, defaulting via PERL");
-		$result[0] = getpwuid($<);
-
-	}
-	$self->log->debug(sprintf "result [%s]", Dumper(\@result));
-
-	return $result[0] if (@result);
-
-	return undef;
 }
 
 =item OBJ->wslhome
@@ -1118,7 +1492,7 @@ sub wslhome {
 
 	push @{ $self->folders }, FN_HOME;
 
-	my $home = $self->joiner;
+	my $home = $self->joiner("wslhome()");
 
 #	return undef unless(-d $home);
 
@@ -1151,7 +1525,7 @@ sub wslroot {
 	my $root = join('', $self->dew, $self->dew, DN_ROOT_WSL, $self->dew, $dist);
 	$self->parse($root);
 
-	return $self->joiner;
+	return $self->joiner("wslroot()");
 }
 
 #sub END { }

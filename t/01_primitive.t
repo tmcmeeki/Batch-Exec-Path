@@ -19,7 +19,7 @@ use Harness;
 #BEGIN { use_ok('Batch::Exec::Path') };
 my $harn = Harness->new('Batch::Exec::Path');
 
-$harn->planned(36);
+#$harn->planned(39);
 use_ok($harn->this);
 
 
@@ -95,18 +95,25 @@ is($os0->drive_letter('wsl$'), 'wsl$',	$harn->cond("drive_letter bucks"));
 is($os0->drive, 'wsl$',			$harn->cond("drive bucks"));
 
 
-# -------- is_known and is_unknown --------
-my $struk = $os1->unknown;
-like($struk, qr/unknown/,		$harn->cond("unknown string"));
-is($os1->is_known($struk), 0,		$harn->cond("is_known positive"));
-is($os1->is_unknown($struk), 1,		$harn->cond("is_unknown positive"));
+# -------- home --------
+my $reh = qr/(home|users)/i;
 
-is($os1->is_known("xxx"), 1,		$harn->cond("is_known negative"));
-is($os1->is_unknown("xxx"), 0,		$harn->cond("is_unknown negative"));
+isnt($os2->home, "",			$harn->cond("home defined"));
+like($os2->home, $reh,			$harn->cond("home matches"));
 
-is($os1->is_known("has_unknown_"), 0,	$harn->cond("is_known regexp"));
-is($os1->is_unknown("has_unknown_"), -1,	$harn->cond("is_unknown regexp"));
-is($os1->is_unknown("/some/path/_unknown_"), -1,	$harn->cond("is_unknown regexp"));
+$log->debug(sprintf "userhome [%s]", Dumper($os2->userhome));
+
+while (my ($user, $home) = each %{ $os2->userhome }) {
+
+	$log->debug(sprintf "user [$user] home [$home]");
+
+	is($os2->home($user), $home,	$harn->cond("home $user"));
+}
+$log->info(sprintf "HOME is [%s]", $os2->home);
+
+$harn->cwul($os1, "home", qr/cygdrive/, qr/Users/, qr/home/, qr/home/);
+
+$harn->done;
 
 
 __END__

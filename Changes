@@ -1,7 +1,31 @@
 Revision history for Perl extension Batch::Exec::Path.
 
 TO-DO:
+	- consider move to parent: cat_re, cat_str, default, is_known, is_unknown, Id
+	- Too late to run INIT block at ../Batch-Exec/lib/Batch/Exec.pm line 186.
+	- consider adding some default attributes, e.g. for DN_DIST_WSL and DN_DRIVE_DFL
+	  which are highly contrived assumptions.
+	- monitor and remove the "GOT HERE" statements in the convert_volumes() method.
+	- consider moving the DN_DIST_WSL variable into the parent wsl_dist() method.
+	- cleanup all the commented out libraries/includes
+	- change all logwarn to warn messages
+
+1.3
 	- support for numeric IPs in a server address (UNC/CIFS or NFS)
+	- moved to parent class: Id, dump_nice (now just dump), winuser
+	- removed the redundant "mount" attribute and disabled "root" attribute
+	- lov registration for key attributes: abs, homed, hybrid, type, unc.
+	- added convert_home() and convert_volumes() methods to simplify convert()
+	- allow passing of user into the home() method and added the homes() method.
+	- added set() method correlating to default() which now uses LoV functionality
+	- significant increase in convert() scenarios.
+
+1.2
+	- moved to parent class: whoami, winuser, dump_nice (as "dump")
+	- removed the mount attribute
+	- added methods: convert, homes.
+	- modified the home method to allow specification of username
+	- added unit testing for: is_known, is_unknown
 
 0.01  Sun Oct  3 13:21:24 2021
 	- original version; created by h2xs 1.23 with options

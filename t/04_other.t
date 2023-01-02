@@ -20,13 +20,14 @@ use Harness;
 my $harn = Harness->new('Batch::Exec::Path');
 use_ok($harn->this);
 my $log = get_logger(__FILE__);
+my ($pn, $er, $ty);
 
 
 # -------- sub-routines --------
 
 
 # -------- main --------
-$harn->planned(62);
+$harn->planned(166);
 
 my $o0 = Batch::Exec::Path->new;
 isa_ok($o0, $harn->this,		$harn->cond("class check"));
@@ -36,6 +37,197 @@ isa_ok($o1, "Batch::Exec::Path",	$harn->cond("class check"));
 
 my $o2 = Batch::Exec::Path->new('shellify' => 1);
 isa_ok($o2, "Batch::Exec::Path",	$harn->cond("class check"));
+
+
+# -------- conversion (same type) --------
+$pn = "/mnt/c/Temp/abc.txt";
+
+$o1->parse($pn);
+$ty = $o1->type;
+
+is($o1->convert($ty), $pn,		$harn->cond("convert same type $ty"));
+
+
+# -------- conversion (cyg to lux [root]) --------
+$pn = '/cygdrive/c/';
+$er = "/";
+$ty = "lux";
+
+$o1->parse($pn);
+is($o1->convert($ty), $er,	$harn->cond("convert [$pn] >> $ty >> [$er]"));
+
+
+# -------- conversion (win to hyb) --------
+$pn = 'c:\Temp\abc.txt';
+$er = "/mnt/c/Temp/abc.txt";
+$ty = "hyb";
+
+$o1->parse($pn);
+is($o1->convert($ty), $er,	$harn->cond("convert [$pn] >> $ty >> [$er]"));
+
+
+# -------- conversion (hyb to win) --------
+$pn = "/mnt/c/Temp/abc.txt";
+$er = 'c:\Temp\abc.txt';
+$ty = "win";
+
+$o1->parse($pn);
+is($o1->convert($ty), $er,	$harn->cond("convert [$pn] >> $ty >> [$er]"));
+
+
+# -------- conversion (cyg to nfs) --------
+$pn = '/cygdrive/c/tmp';
+$er = "hostx:/tmp";
+$ty = "nfs";
+
+$o1->parse($pn);
+$o1->server('hostx');
+is($o1->convert($ty), $er,	$harn->cond("convert [$pn] >> $ty >> [$er]"));
+
+
+# -------- conversion (nfs to cyg) --------
+$pn = "hosty:/tmp";
+$er = '/cygdrive/c/tmp';
+$ty = "cyg";
+
+$o1->parse($pn);
+$o1->drive_letter('c');
+$o1->server(undef);
+is($o1->convert($ty), $er,	$harn->cond("convert [$pn] >> $ty >> [$er]"));
+
+
+# -------- conversion (nfs to lux) --------
+$pn = "hosty:/tmp";
+$er = '/tmp';
+$ty = "lux";
+
+$o1->parse($pn);
+$o1->server(undef);
+is($o1->convert($ty), $er,	$harn->cond("convert [$pn] >> $ty >> [$er]"));
+
+
+# -------- conversion (wsl to lux) --------
+$pn = '\\\\wsl$\\Ubuntu\\home\\jbloggs';
+$er = "/home/jbloggs";
+$ty = "lux";
+
+$o1->parse($pn);
+is($o1->convert($ty), $er,	$harn->cond("convert [$pn] >> $ty >> [$er]"));
+
+
+# -------- conversion (lux to wsl) --------
+$pn = '/home/jbloggs';
+$er = '\\\\wsl$\\Ubuntu\\home\\jbloggs';
+$ty = "wsl";
+
+$o1->parse($pn);
+is($o1->convert($ty), $er,	$harn->cond("convert [$pn] >> $ty >> [$er]"));
+
+
+# -------- conversion (win to hyb) --------
+$pn = 'C:\Users\jbloggs\foo';
+$er = '/mnt/c/Users/jbloggs/foo';
+$ty = "hyb";
+
+$o1->parse($pn);
+is($o1->convert($ty), $er,	$harn->cond("convert [$pn] >> $ty >> [$er]"));
+
+
+# -------- conversion (hyb to cyg) --------
+$pn = '/mnt/c/Users/jbloggs';
+$er = '/cygdrive/c/Users/jbloggs';
+$ty = "cyg";
+
+$o1->parse($pn);
+is($o1->convert($ty), $er,	$harn->cond("convert [$pn] >> $ty >> [$er]"));
+
+
+# -------- conversion (cyg to hyb) --------
+$pn = '/cygdrive/c/Users/jbloggs';
+$er = '/mnt/c/Users/jbloggs';
+$ty = "hyb";
+
+$o1->parse($pn);
+is($o1->convert($ty), $er,	$harn->cond("convert [$pn] >> $ty >> [$er]"));
+
+
+# -------- conversion (win to hyb) --------
+$pn = '/cygdrive/c/Users/jbloggs';
+$er = '/mnt/c/Users/jbloggs';
+$ty = "hyb";
+
+$o1->parse($pn);
+is($o1->convert($ty), $er,	$harn->cond("convert [$pn] >> $ty >> [$er]"));
+
+
+# -------- conversion (see: path_scenarios.xlsx) --------
+my ($re_wsll, $re_wslw);
+$re_wsll = '//wsl$/Ubuntu/tmp';
+$re_wslw = '\\\\wsl$\\Ubuntu\\tmp';
+
+my %convert;	# order:  cyg   hyb   lux   nfs   win   wsl 
+
+$convert{'foo/bar'} = [qw{ foo/bar foo/bar foo/bar foo/bar foo\\bar foo\\bar }];
+$convert{'tmp'} = [qw{ tmp tmp tmp tmp tmp tmp }];
+$convert{'./tmp'} = [qw{ ./tmp ./tmp ./tmp ./tmp .\\tmp .\\tmp }];
+$convert{'/tmp'} = [qw{ /cygdrive/c/tmp /mnt/c/tmp /tmp /tmp \\tmp \\\\wsl$\\Ubuntu\\tmp }];
+$convert{'c:\\tmp'} = [qw{ /cygdrive/c/tmp /mnt/c/tmp /tmp /tmp c:\\tmp }, $re_wslw];
+
+$convert{'/cygdrive/c/tmp'} = [qw{ /cygdrive/c/tmp /mnt/c/tmp /tmp /tmp c:\\tmp c:\\tmp }];
+
+$convert{'\\\\server\\c$\\tmp'} = [qw{ //server/c$/tmp //server/c$/tmp //server/c$/tmp server:/c$/tmp \\\\server\\c$\\tmp \\\\server\\c$\\tmp }];
+
+$convert{$re_wslw} = [ $re_wsll, qw[ /tmp /tmp /tmp ], $re_wslw, $re_wslw ];
+
+$re_wsll = '//wsl$/Ubuntu';
+$re_wslw = '\\\\wsl$\\Ubuntu';
+$convert{$re_wslw} = [ $re_wsll, qw[ / / / ], $re_wslw, $re_wslw ];
+
+my $re_lxh = $o0->cat_re(0, qw/ jbloggs home root /, $o0->whoami, $o0->winuser);
+my $re_wih = $o0->cat_re(0, qw/ jbloggs Users/, $o0->whoami, $o0->winuser);
+$convert{'~'} = [ $re_lxh, $re_lxh, $re_lxh, $re_lxh, $re_wih, $re_wih ];
+$convert{'~jbloggs'} = [ $re_lxh, $re_lxh, $re_lxh, $re_lxh, $re_wih, $re_wih ];
+
+$convert{'/'} = [qw{ /cygdrive/c /mnt/c / / \\ \\\\wsl$\\Ubuntu }];
+$convert{'\\'} = [qw{ /cygdrive/c /mnt/c / / \\ \\\\wsl$\\Ubuntu }];
+
+#$log->debug(sprintf "convert [%s]", Dumper(\%convert));
+
+
+my @types = $o0->lov("_lov", "type");
+$log->debug($o0->dump(\@types, "types"));
+for my $pn (sort keys %convert) {
+
+	my $ra = $convert{$pn};
+
+	ok(scalar(@$ra) == @types,	$harn->cond("conversion types"));
+
+	$o0->cough("convert hash [$pn] array size") unless (scalar(@$ra) == @types);
+
+	$log->debug($o0->dump($ra, "ra xxxx xxxx xxxx xxxx xxxx xxxx xxxx"));
+
+	my $fail; for (my $ss = 0; $ss < @types; $ss++) {
+
+		my $ty = $types[$ss];
+		my $er = $ra->[$ss];
+
+		ok($o0->parse($pn),	$harn->cond("parse [$pn] convert to [$ty]"));
+
+#		$log->debug("==== ==== $pn ==== $ty ==== ====");
+
+		if (ref($er) eq 'Regexp') {
+			#like($o0->convert($ty), $er, $harn->cond("convert $ty $pn"));
+			$fail = ($o0->convert($ty) =~ $er) ? "" : "fail [$pn] to [$ty] expected [$er]";
+		} else {
+			#is($o0->convert($ty), $er, $harn->cond("convert $ty $pn"));
+			$fail = ($o0->convert($ty) eq $er) ? "" : "fail [$pn] to [$ty] expected [$er]";
+		}
+
+		last unless ($fail eq "");
+	}
+	$log->logcroak($fail)
+		if ($fail ne "");
+}
 
 
 # -------- escape --------
@@ -139,9 +331,12 @@ $harn->cwul($o1, qw[  tld	\\cygdrive  C:  \\mnt  \\  ]);
 $log->info("==== ==== ==== ==== ==== ==== ==== ==== ==== ====");
 $harn->cwul($o0, qw[ tld wsl    //wsl$/Ubuntu    //wsl$/Ubuntu    //wsl$/Ubuntu  / ]);
 $harn->cwul($o1, qw[ tld wsl \\\\wsl$\\Ubuntu \\\\wsl$\\Ubuntu \\\\wsl$\\Ubuntu \\ ]);
+SKIP: {
+	skip "invalid syntax tld", 2;
 
-$harn->cwul($o0, "tld", "", qw[  /cygdrive  C:  /mnt    /  ]);
-$harn->cwul($o1, "tld", "", qw[ \\cygdrive  C:  \\mnt  \\  ]);
+	$harn->cwul($o0, "tld", "xxx", qw[  /cygdrive  C:  /mnt    /  ]);
+	$harn->cwul($o1, "tld", "xxx", qw[ \\cygdrive  C:  \\mnt  \\  ]);
+}
 
 
 # -------- wslroot and wslhome --------

@@ -449,6 +449,7 @@ l=1=1=none=/=0=/
 l=1=1=none=/=0=.
 l=1=1=none=/=0=..
 l=1=1=none=/=1=/tmp
+l=1=1=none=none=1=tmp
 l=1=1=none=/=2=/root/xxx
 l=1=1=none=/=1=.
 l=1=0=none=none=1=foo
@@ -456,6 +457,7 @@ l=1=0=none=none=2=foo/bar
 l=1=0=none=none=1=./bar
 l=1=0=none=none=2=./foo/bar
 l=1=1=none=none=1=~
+l=1=1=none=none=1=~jbloggs
 l=1=1=none=none=1=~/tmp
 l=1=1=hostname=/=1=//hostname/xxx
 l=1=1=server=/=1=//server/Temp03b
