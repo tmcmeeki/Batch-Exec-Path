@@ -16,23 +16,16 @@ use lib 't';
 use Harness;
 
 
-#BEGIN { use_ok('Batch::Exec::Path') };
-my $harn = Harness->new('Batch::Exec::Path');
-
-#$harn->planned(39);
-use_ok($harn->this);
-
-
-# -------- constants --------
-
-
 # -------- global variables --------
 #Log::Log4perl->easy_init($ERROR);
 #Log::Log4perl->easy_init($DEBUG);
 my $log = get_logger(__FILE__);
+my $harn = Harness->new('Batch::Exec::Path');
 
 
 # -------- main --------
+use_ok($harn->this);
+
 my $os0 = Batch::Exec::Path->new('behaviour' => 'w');
 isa_ok($os0, $harn->this,		$harn->cond("class check"));
 

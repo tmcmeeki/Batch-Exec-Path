@@ -2,7 +2,7 @@ package Batch::Exec::Path;
 
 =head1 NAME
 
-Batch::Exec::Path cross-platform path handling for the batch executive.
+Batch::Exec::Path - cross-platform path handling for the batch executive.
 
 =head1 AUTHOR
 
@@ -11,6 +11,37 @@ Copyright (C) 2022  B<Tom McMeekin> tmcmeeki@cpan.org
 =head1 SYNOPSIS
 
   use Batch::Exec::Path;
+
+  my $bep = Batch::Exec::Path->new;
+
+  printf "%s\n", $bep->home;
+
+	# on linux, returns:	/home/jbloggs
+	# on Windows, returns:	C:\Users\jbloggs
+
+
+  # parsing and joining:
+  $bep->parse('c:\\Users\\jbloggs');	# an MSWin format;
+
+  printf "%s\n", $bep->joiner;		# native representation
+	# returns: c:/Users/jbloggs
+
+  printf "%s\n", $bep->convert('wsl');	# convert to another representation
+	# returns: \\wsl$\Ubuntu\Users\jbloggs
+
+
+  # preparing for shell calls: escape() must follow parse...
+  printf "%s\n", $bep->escape;
+	# returns: \\\\wsl\$\\Ubuntu\\Users\\jbloggs
+
+
+  # simple adaptation to current platform:
+  $bep->parse($bep->home);
+
+  printf "%s\n", $bep->adapt;
+	# on Cygwin returns:		/cygdrive/c/Users/jbloggs/cygwin
+	# on Ubuntu/WSL returns:	\\wsl$\Ubuntu\home\jbloggs
+	# on MSWin returns:		C:\Users\jbloggs
 
 
 =head1 DESCRIPTION
@@ -53,6 +84,10 @@ Network fileshares are parsed according to protocol conventions, e.g.
 Currently the NFS convention is only supported for symbolic hostnames
 (as opposed to IP addresses).
 
+Note that the host program should verify the existence of a particular path,
+as this is neither performant or reliable from within this package.  However,
+the B<extant> method is available if such a check is required.
+
 =head2 ATTRIBUTES
 
 =over 4
@@ -79,17 +114,22 @@ and backslash for MSWin platforms.
 Both get or set operations for which defaults apply.
 See the correlating attribute B<reu>.
 
+=item OBJ->distro
+
+Get or set the default WSL distribution name.  A default applies.
+
+=item OBJ->dosdrive
+
+Get or set the default DOS drive.  A default applies.
+This attribute remains unchanged during a B<parse> operation, as distinct
+from the B<drive> attribute below.
+
 =item OBJ->drive
 
 Boolean which indicates an absolute path.
 Reinitialised and conditionally set by the B<parse> method.
 No default applies.
 Subsequently utilised by the B<joiner> method.
-
-=item OBJ->exists
-
-Boolean which indicates if the associated path refers to an extant file.
-This is reset by the B<parse> method and assigned by the B<joiner> method.
 
 =item OBJ->folders
 
@@ -106,12 +146,6 @@ The regular expressions which separate components of a pathname,
 respectively for unices and MSWin platforms.
 Both get or set operations for which defaults apply.
 See the correlating attribute B<deu>.
-
-=item OBJ->shellify(BOOLEAN)
-
-Useful when converting paths for shell-calls to Windows-like interpreters
-backslashes are appropriately delimeted, e.g. \ becomes \\.
-Default is 0 (off = do not shellify).
 
 =item OBJ->volumes
 
@@ -134,7 +168,7 @@ use Data::Dumper;
 
 use File::Spec;
 #use Logfer qw/ :all /;
-#use File::Basename;
+use File::Basename;
 #require File::Spec::Win32;
 require File::HomeDir;
 #require Path::Class;
@@ -148,7 +182,7 @@ use Parse::Lex;
 use constant ENV_WINHOME => $ENV{'HOMEDRIVE'};
 use constant ENV_WINPATH => $ENV{'HOMEPATH'};
 
-use constant DN_DIST_WSL => "Ubuntu";	# add if missing (certain contexts)
+use constant DN_DISTWSL_DFL => "Ubuntu";# add if missing (certain contexts)
 use constant DN_DRIVE_DFL => "c";	# add if missing (certain contexts)
 use constant DN_MOUNT_CYG => "cygdrive";
 use constant DN_MOUNT_HYB => "mnt";
@@ -191,8 +225,9 @@ my %_attribute = (	# _attributes are restricted; no direct get/set
 	behaviour => undef,	# platform-dependent default, one of: w, u.
 	deu => STR_DELIM_U,
 	dew => STR_DELIM_W,
+	distro => DN_DISTWSL_DFL,
 	drive => undef,
-	exists => undef,
+	dosdrive => DN_DRIVE_DFL,
 	folders => [],
 	homed => undef,
 	hybrid => undef,
@@ -204,7 +239,6 @@ my %_attribute = (	# _attributes are restricted; no direct get/set
 	rew => RE_DELIM_W,
 #	root => undef,		# placeholder for root component
 	server => undef,
-	shellify => 0,		# converts \ to \\ for DOS-like shell exits
 	type => undef,
 	unc => undef,
 	unknown => STR_UNKNOWN,	# stringy failsafe
@@ -291,6 +325,38 @@ sub new {
 
 =over 4
 
+=item OBJ->adapt
+
+Attempt to convert a previously parsed path to a format compatible with the
+current platform.  This is basically a convenience wrapper for the 
+B<convert> method.
+
+=cut
+
+sub adapt {
+	my $self = shift;
+	$self->cough($self->msg) unless defined($self->type);
+#	confess "SYNTAX adapt(EXPR)" unless (@_);
+
+	my $to; if ($self->on_cygwin) {
+
+		$to = 'cyg';
+
+	} elsif ($self->on_wsl) {
+
+		$to = 'wsl';
+
+	} elsif ($self->on_windows) {
+
+		$to = 'win';
+	} else {
+		$to = 'lux';
+	}
+	$self->log->debug("selected [$to] for this platform");
+
+	return $self->convert($to);
+}
+
 =item OBJ->cat_re(BOOLEAN, EXPR, ...)
 
 Concatenate (join) the EXPR parameters passed to create a REGEXP.  
@@ -309,7 +375,7 @@ sub cat_re {
 	my $regexp = ($f_bookend) ? qr/^$str$/ : qr/$str/;
 
 	$self->log->trace("regexp [$regexp]");
-	
+
 	return $regexp;
 }
 
@@ -330,7 +396,7 @@ sub cat_str {
 
 	my $str = sprintf "(%s)", join('|', @valid);
 
-	$self->log->debug("str [$str]");
+	$self->log->trace("str [$str]");
 
 	return $str;
 }
@@ -445,7 +511,7 @@ sub convert_volumes {
 
 #			$self->cough($self->dump($msg, "drive letter"));
 			$self->log->warn($self->dump($msg, "drive letter, assigning default"));
-			$self->drive_letter(DN_DRIVE_DFL);
+			$self->drive_letter($self->dosdrive);
 		}
 	}
 
@@ -528,11 +594,7 @@ sub convert_volumes {
 
 		if (defined $self->server) {
 
-			$self->log->debug("GOT HERE 1");
-
 		} elsif ($f_hve) {
-
-			$self->log->debug("GOT HERE 2");
 
 			shift @$rav;
 
@@ -547,14 +609,13 @@ sub convert_volumes {
 			$self->volumes([]);
 
 			my $dn_dist = $self->wsl_dist;
-			$dn_dist = DN_DIST_WSL unless defined($dn_dist);
+			$dn_dist = $self->distro unless defined($dn_dist);
 
 			push @{ $self->volumes }, DN_ROOT_WSL;
 			push @{ $self->volumes }, $dn_dist;
 
 		} elsif ($n_vol && defined($self->drive) && $rav->[0] eq $self->drive) { # C:
 #		} elsif ($n_vol && $rav->[0] eq $self->drive) { # C:
-			$self->log->debug("GOT HERE 3");
 
 			shift @$rav;
 		}
@@ -663,7 +724,7 @@ sub convert {
 
 		my $err = sprintf "WARNING cannot convert [$old] to [$typB]";
 
-		$self->log->logwarn(join ": ", $err, $msg);
+		$self->log->warn(join ": ", $err, $msg);
 
 		return $old;
 	}
@@ -756,12 +817,13 @@ sub escape {
 
 		$pno = $pni;
 
-		my $de = $self->dew;
+		#my $de = $self->dew;
 		my $res = $self->res;
 
-		$pno =~ s/$res/$de/g;
+	#	$pno =~ s/$res/$de/g;
 
-#		$pno =~ s/$res/\\$&/g;	# slash all occurrences within
+		$pno =~ s/$res/\\$&/g;	# slash all occurrences within
+#		$pno =~ s/$res/\\/g;	# slash all occurrences within
 
 	} else {
 		$self->cough("invalid method [$method]");
@@ -810,7 +872,7 @@ sub home {
 
 		unless (exists $self->userhome->{$user}) {
 
-			$self->log->logwarn("no home entry for user [$user]");
+			$self->log->warn("no home entry for user [$user]");
 
 			return undef;
 		}
@@ -888,7 +950,7 @@ sub homes {
 			@home = split($self->rew, $home);
 
 			my $user = pop @home;
-			
+
         		$self->log->trace("home [$home] user [$user]");
 
 	                $rau->{$user} = $home;
@@ -1000,15 +1062,11 @@ sub joiner {
 
 	push @parts, @{ $self->folders };
 
-#	$self->log->debug(sprintf "parts [%s]", Dumper(\@parts));
-
 	for (my $ss = 0; $ss < @parts; $ss++) {
 
 		$parts[$ss] = $self->connector
 			unless(defined $parts[$ss]);
 	}
-#	$self->log->debug(sprintf "parts [%s]", Dumper(\@parts));
-
 	my $pn = join($self->connector, @parts);
 
 	unless (defined $self->server || $self->type eq 'wsl') {
@@ -1017,11 +1075,6 @@ sub joiner {
 
 		$pn =~ s/^$re// if ($pn =~ /^$re$re/);
 	}
-
-	# check existence, except if it is a network share!
-	$self->exists($self->extant($pn)) unless (
-		defined($self->server));# || 
-
 	$self->log->info("joined [$pn]");
 
 	return $pn;
@@ -1043,16 +1096,16 @@ sub dump_me {
 	my $null = "";
 	my $fdt = (defined($token) && ref($token) =~ /^Parse::Token/) ? 1 : 0;
 #	my @attr = qw/ abs drive letter exists homed hybrid type unc behaviour server user /;
-	my @attr = qw/ abs drive letter unc homed exists hybrid behaviour type user server /;
+	my @attr = qw/ abs drive letter unc homed hybrid type behaviour user server /;
 
 	unless (defined $context) {
 		$context = ($fdt) ? $token->name : $self->unknown;
 	}
 
-	$self->log->debug(sprintf "==== START attributes $context ====");
+	$self->log->trace(sprintf "==== START attributes $context ====");
 
-	$self->log->debug($self->dump($self->folders, "folders"));
-	$self->log->debug($self->dump($self->volumes, "volumes"));
+	$self->log->trace($self->dump($self->folders, "folders"));
+	$self->log->trace($self->dump($self->volumes, "volumes"));
 
 	my $count = 0;
 	my $str = "";
@@ -1064,22 +1117,22 @@ sub dump_me {
 		$str .= sprintf "%6s [%s]  ", $attr, (defined $self->$attr) ? $self->$attr : $null;
 		if (++$count % 3 == 0) {
 
-			$self->log->debug($str);
+			$self->log->trace($str);
 
 			$str = "";
 		}
 	}
-	$self->log->debug($str) unless ($str eq "");
+	$self->log->trace($str) unless ($str eq "");
 
 	my $rv; if ($fdt) {
 
-		$self->log->debug(sprintf "name [%s] regexp >%s< status [%s] text [%s]", $token->name, $token->regexp, $token->status, $token->text);
+		$self->log->trace(sprintf "name [%s] regexp >%s< status [%s] text [%s]", $token->name, $token->regexp, $token->status, $token->text);
 
 		$rv = $token->text;
 	} else {
 		$rv = undef;
 	}
-	$self->log->debug(sprintf "==== END attributes $context ====");
+	$self->log->trace(sprintf "==== END attributes $context ====");
 
 	return $rv;
 }
@@ -1274,7 +1327,7 @@ sub lexer {
 			$self->set("homed", 1);
 
 		} elsif ($self->homed) {
-		
+
 			$self->user($dn) if ($n_folders &&
 				$self->folders->[$n_folders - 1] =~ $re_hom);
 		}
@@ -1334,7 +1387,6 @@ sub parse {
 
 	$self->abs(undef);
 	$self->drive(undef);
-	$self->exists(0);
 	$self->homed(undef);
 	$self->hybrid(undef);
 	$self->letter(undef);
@@ -1381,7 +1433,7 @@ sub parse {
 			$purge++;
 		}
 	}
-	$self->log->debug("$purge [$rel] symbols purged");
+	$self->log->trace("$purge [$rel] symbols purged");
 
 	return $count;
 }
@@ -1512,7 +1564,7 @@ sub wslroot {
 #	this routine generates a likely WSL root, regardless of its existence.
 	my $self = shift;
 
-	$self->log->logwarn("WSL does not exist on this platform")
+	$self->log->warn("WSL does not exist on this platform")
 		unless ($self->like_windows);
 
 	my $dist = $self->wsl_dist;
@@ -1557,7 +1609,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 =head1 SEE ALSO
 
-L<perl>.
+L<perl>.  B<Batch::Exec>, B<File::Basename>, B<File::Spec>, B<Parse::Lex>.
 
 =cut
 

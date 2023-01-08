@@ -5,13 +5,10 @@
 use strict;
 
 use Data::Dumper;
-use Test::More; # tests => 45;
+use Test::More;
 use lib 't';
 use Harness;
 
-
-
-# -------- constants --------
 
 
 # -------- global variables --------

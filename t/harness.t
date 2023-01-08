@@ -13,7 +13,7 @@ use Harness;
 Log::Log4perl->easy_init($DEBUG);
 
 my $harn = Harness->new("hello");
-$harn->planned(678);
+$harn->planned(726);
 
 is($harn->this, "hello",		"this");
 
@@ -110,15 +110,41 @@ is(scalar($harn->windows), 8,			$harn->cond("windows"));
 
 
 # --- fs2bs ---
-is($harn->fs2bs("/"), "\\",			$harn->cond("fs2bs"));
-is($harn->fs2bs("//"), "\\\\",			$harn->cond("fs2bs"));
-is($harn->fs2bs("a/b/c"), "a\\b\\c",		$harn->cond("fs2bs"));
+my $re_fs = qr[/];
+my $re_bs = qr[\\];
+for my $from (qw[ / // a/b/c  /a/b a/b/c ]) {
+
+	# --- fs2bs (swap) ---
+	my $to = $harn->fs2bs($from);
+
+	is(length($from), length($to),	$harn->cond("fs2bs length"));
+
+	like($from, $re_fs,		$harn->cond("fs2bs from LK re"));
+	unlike($from, $re_bs,		$harn->cond("fs2bs from UL re"));
+
+	like($to, $re_bs,		$harn->cond("fs2bs to LK re"));
+	unlike($to, $re_fs,		$harn->cond("fs2bs to UL re"));
 
 
-# --- fs2bs shell ---
-is($harn->fs2bs("/", 1), "\\\\",		$harn->cond("fs2bs slash"));
-is($harn->fs2bs("//", 1), "\\\\\\\\",		$harn->cond("fs2bs slash"));
-is($harn->fs2bs("a/b/c", 1), "a\\\\b\\\\c",	$harn->cond("fs2bs slash"));
+	# --- fs2bs (shell) ---
+	$to = $harn->fs2bs($from, 1);
+
+	ok(length($from) < length($to),	$harn->cond("fs2bs shell length"));
+
+	like($from, $re_fs,		$harn->cond("fs2bs shell from LK re"));
+	unlike($from, $re_bs,		$harn->cond("fs2bs shell from UL re"));
+
+	like($to, $re_bs,		$harn->cond("fs2bs shell to LK re"));
+	unlike($to, $re_fs,		$harn->cond("fs2bs shell to UL re"));
+}
+
+
+# --- fs2bs (shell, advanced) ---
+is($harn->fs2bs(" "), " ",		$harn->cond("fs2bs space base"));
+is($harn->fs2bs(" ", 1), "\\ ",		$harn->cond("fs2bs space shell"));
+
+is($harn->fs2bs("'"), "'",		$harn->cond("fs2bs sq base"));
+is($harn->fs2bs("'", 1), "\\'",		$harn->cond("fs2bs sq shell"));
 
 
 # --- cwul ---

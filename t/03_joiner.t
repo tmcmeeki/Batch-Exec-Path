@@ -8,22 +8,21 @@ use strict;
 use Data::Dumper;
 #use Log::Log4perl qw/ :easy /; Log::Log4perl->easy_init($DEBUG);
 use Logfer qw/ :all /;
-use Test::More; # tests => 45;
+use Test::More;
 use lib 't';
 use Harness;
 
 
-# -------- constants --------
-
-
 # -------- global variables --------
 my $harn = Harness->new('Batch::Exec::Path');
-use_ok($harn->this);
+
 my $log = get_logger(__FILE__);
 
 
 # -------- main --------
 $harn->planned(144);
+
+use_ok($harn->this);
 
 my $o1 = Batch::Exec::Path->new('behaviour' => 'u');
 isa_ok($o1, $harn->this,		$harn->cond("class check"));

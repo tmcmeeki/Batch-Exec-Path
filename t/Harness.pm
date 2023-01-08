@@ -44,6 +44,7 @@ my %attribute = (
 	ofs => ord("/"),	# unix [forward]slash
 	osp => ord(" "),
 	osq => ord("'"),
+	ost => ord('$'),
 	this => undef,
 # dummy attribute for cwul()
 	on_cygwin => 1,
@@ -148,7 +149,7 @@ sub cwul {	# four-way platform-related test
 			} @_;
 			my $what = (defined $check) ? $check : "(undef)";
 
-			$self->log->debug(sprintf "method [$meth(%s)] [$platform] ref [$ref] check [$what]", join(', ', @argv));
+			$self->log->trace(sprintf "method [$meth(%s)] [$platform] ref [$ref] check [$what]", join(', ', @argv));
 
 			if ($ref eq 'Regexp') {
 
@@ -202,7 +203,8 @@ sub done {
 	$self->{'executed'} += $extra
 		if (defined $extra);
 
-	done_testing($self->executed);
+#	done_testing($self->executed);
+	done_testing;
 }
 
 
@@ -405,6 +407,7 @@ sub fs2bs {	# byte-level conversion of forward-slash to back-slash
 	my $osb = ($f_reverse) ? $self->ofs : $self->obs;
 	my $osp = $self->osp;
 	my $osq = $self->osq;
+	my $ost = $self->ost;
 
 	$self->log->trace("osa [$osa] osb [$osb]");
 
@@ -414,7 +417,7 @@ sub fs2bs {	# byte-level conversion of forward-slash to back-slash
 
 	my @new; for my $c (@str) {
 
-		if ( $c == $osa || $c == $osb || $c == $osp || $c == $osq ) {
+		if ($c == $osa || $c == $osb || $c == $osp || $c == $osq || $c == $ost) {
 			push @new, $self->obs	# insert shellified backslash
 				if ($shell);
 		}

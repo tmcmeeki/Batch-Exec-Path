@@ -8,17 +8,13 @@ use strict;
 use Data::Dumper;
 #use Log::Log4perl qw/ :easy /; Log::Log4perl->easy_init($ERROR);
 use Logfer qw/ :all /;
-use Test::More; # tests => 45;
+use Test::More;
 use lib 't';
 use Harness;
 
 
-# -------- constants --------
-
-
 # -------- global variables --------
 my $harn = Harness->new('Batch::Exec::Path');
-use_ok($harn->this);
 my $log = get_logger(__FILE__);
 my ($pn, $er, $ty);
 
@@ -27,15 +23,17 @@ my ($pn, $er, $ty);
 
 
 # -------- main --------
-$harn->planned(166);
+$harn->planned(345);
+
+use_ok($harn->this);
 
 my $o0 = Batch::Exec::Path->new;
 isa_ok($o0, $harn->this,		$harn->cond("class check"));
 
-my $o1 = Batch::Exec::Path->new('shellify' => 0);
+my $o1 = Batch::Exec::Path->new;
 isa_ok($o1, "Batch::Exec::Path",	$harn->cond("class check"));
 
-my $o2 = Batch::Exec::Path->new('shellify' => 1);
+my $o2 = Batch::Exec::Path->new;
 isa_ok($o2, "Batch::Exec::Path",	$harn->cond("class check"));
 
 
@@ -230,95 +228,117 @@ for my $pn (sort keys %convert) {
 }
 
 
-# -------- escape --------
-is($o1->shellify, 0,			$harn->cond("shellify off"));
-is($o2->shellify, 1,			$harn->cond("shellify on"));
-
+# -------- escape basic --------
 $o1->behaviour('u');
 $o2->behaviour('u');
 is($o1->behaviour, 'u',			$harn->cond("behaviour unix"));
-is($o1->behaviour, $o2->behaviour,	$harn->cond("behaviour match"));
+is($o2->behaviour, $o1->behaviour,	$harn->cond("behaviour match"));
 
+is($o1->parse('hello'), 2,		$harn->cond("parse hello"));
+is($o1->escape, 'hello',		$harn->cond("escape no arg"));
+is($o1->escape('b'), 'hello',		$harn->cond("escape no effect"));
+is($o1->escape('q'), qw{ "hello" },	$harn->cond("escape double quotes"));
+is($o1->escape('s'), qw{ 'hello' },	$harn->cond("escape single quotes"));
+
+is($o1->parse('foo bar'), 2,		$harn->cond("parse foo bar"));
+is($o1->escape, 'foo\\ bar',		$harn->cond("escape no arg"));
+is($o1->escape('b'), 'foo\\ bar',	$harn->cond("escape no effect"));
+is($o1->escape('q'), q{"foo bar"},	$harn->cond("escape double quotes"));
+is($o1->escape('s'), q{'foo bar'},	$harn->cond("escape single quotes"));
+
+is($o1->parse('foo/bar'), 4,		$harn->cond("parse foo/bar"));
+is($o1->escape, 'foo\\/bar',		$harn->cond("escape no arg"));
+is($o1->escape('b'), 'foo\\/bar',	$harn->cond("escape no effect"));
+is($o1->escape('q'), q{"foo/bar"},	$harn->cond("escape double quotes"));
+is($o1->escape('s'), q{'foo/bar'},	$harn->cond("escape single quotes"));
+
+
+# -------- escape data structure --------
 my %uxp = (	# first = path (unmodified), second = escape result
-  'a' => { 'base' => 'foo',		'us' => 'foo',
-					'wd' => 'foo',
-					'ws' => 'foo',
-	},
-  'b' => { 'base' => 'foo bar',		'us' => q{foo\ bar},
-					'wd' => 'foo bar',
-					'ws' => q{foo\ bar},
-	},
-  'c' => { 'base' => 'foo/bar',		'us' => q{foo\/bar},
-					'wd' => q{foo\bar},
-					'ws' => q{foo\\bar},
-	},
-  'd' => { 'base' => '/foo/bar',	'us' => q{\/foo\/bar},
-					'wd' => q{\foo\bar},
-					'ws' => q{\\foo\\bar},
-	},
-  'e' => { 'base' => '/foo/bar/',	'us' => q{\/foo\/bar\/},
-#					'wd' => q{\foo\bar\},
-# these are causing syntax errors so the windows tests are delegated to "Harness"
-					'ws' => q{\\foo\\bar\\},
-	},
-  'f' => { 'base' => q{foo'bar},	'us' => q{foo\'bar},
-					'wd' => q{foo'bar},
-					'ws' => q{foo\'bar},
-	},
-  'g' => { 'base' => '/fu/man/chu',	'us' => q{\/fu\/man\/chu},
-					'wd' => q{\fu\man/chu},
-					'ws' => q{\\fu\\man\\chu},
-	},
-  'h' => { 'base' => ' fu man chu ',	'us' => q{\ fu\ man\ chu\ },
-					'wd' => ' fu man chu ',
-					'ws' => q{\ fu\ man\ chu\ },
-	},
+  'a' => { 'base' => 'foo',		'us' => 'foo' },
+  'b' => { 'base' => 'foo bar',		'us' => q{foo\\ bar} },
+  'c' => { 'base' => 'foo/bar',		'us' => q{foo\\/bar} },
+  'd' => { 'base' => '/foo/bar',	'us' => q{\\/foo\\/bar} },
+  'e' => { 'base' => q{foo'bar},	'us' => q{foo\\'bar} },
+  'f' => { 'base' => '/fu/man/chu',	'us' => '\\/fu\\/man\\/chu' },
+  'g' => { 'base' => 'fu man chu ',	'us' => "fu\\ man\\ chu\\ " },
 );
 
-#while (my ($cond, $rh) = each %uxp) {
+
+# -------- escape behaviour for unices --------
 for my $cond (sort keys %uxp) {
 	my $rh = $uxp{$cond};
 	my $base = $rh->{'base'};
 	my $shell = $rh->{'us'};
 
-	SKIP: {
-		skip "escape yet to be tested", 2;
+	ok($o1->parse($base),		$harn->cond("escape parse"));
+	is($o1->joiner, $base,		$harn->cond("joiner linux cond=$cond"));
 
-		is($o1->escape($base), $base,	$harn->cond("escape shellify OFF unix cond=$cond"));
+	ok($o2->parse($base),		$harn->cond("escape parse"));
+	is($o2->escape, $shell,		$harn->cond("escape linux cond=$cond"));
+}
 
-		is($o2->escape($base), $shell,	$harn->cond("escape shellify ON unix cond=$cond"));
-	}
+for my $rh ($harn->linux) {
+
+	my ($pni) = $harn->select($rh, qw/ path /);
+	my $shell = $harn->fs2bs($pni, 1, 1);
+
+	ok($o1->parse($pni),		$harn->cond("escape parse"));
+	is($o1->joiner, $pni,		$harn->cond("joiner linux harn $pni"));
+
+	next if ($o1->type eq 'nfs');
+
+	ok($o2->parse($pni),		$harn->cond("escape parse"));
+	is($o2->escape, $shell,		$harn->cond("escape linux harn $pni"));
+
+#	last unless($o1->escape eq $shell);	# DEBUGGING
 }
 
 
-# -------- escape and shellify: windows behaviour --------
+# -------- escape: windows behaviour --------
 $o1->behaviour('w');
 $o2->behaviour('w');
-is($o1->behaviour, 'w',		$harn->cond("behaviour wind"));
-is($o1->behaviour, $o2->behaviour,	$harn->cond("behaviour match"));
+is($o1->behaviour, 'w',			$harn->cond("behaviour wind"));
+is($o1->behaviour, $o1->behaviour,	$harn->cond("behaviour match"));
 
 for my $cond (sort keys %uxp) {
 
 	my $rh = $uxp{$cond};
 	my $base = $rh->{'base'};
-	my $wd = $rh->{'wd'};
-	my $ws = $rh->{'ws'};
-
-#	wd and ws testing does not naturally parse correctly so
-#	have delegate to the t/Harness.pm module
 
 	my $hd = $harn->fs2bs($base);
-	my $hs = $harn->fs2bs($base, 1);
 
 	is(length($hd), length($base),	$harn->cond("fs2bs length"));
 
-	SKIP: {
-		skip "escape yet to be tested", 2;
+	ok($o1->parse($base),		$harn->cond("escape parse"));
+	is($o1->joiner, $hd,		$harn->cond("joiner hd cond=$cond"));
 
-		is($o1->escape($base), $hd,	$harn->cond("escape shellify OFF hd cond=$cond"));
+#	last unless($o1->escape eq $hd);	# DEBUGGING
 
-		is($o2->escape($base), $hs,	$harn->cond("escape shellify ON hs cond=$cond"));
-	}
+	my $hs = $harn->fs2bs($base, 1);
+
+	ok(length($hs) >= length($base),	$harn->cond("fs2bs length"));
+
+	ok($o2->parse($base),		$harn->cond("escape parse"));
+	is($o2->escape, $hs,		$harn->cond("escape hs cond=$cond"));
+}
+
+for my $rh ($harn->windows) {
+
+	my ($pni) = $harn->select($rh, qw/ path /);
+	my $shell = $harn->fs2bs($pni, 1);
+
+	ok($o1->parse($pni),		$harn->cond("escape parse"));
+	is($o1->joiner, $pni,		$harn->cond("joiner mswin harn $pni"));
+
+	last unless($o1->joiner eq $pni);	# DEBUGGING
+
+	next if ($o1->type eq 'nfs');
+
+	ok($o2->parse($pni),		$harn->cond("escape parse"));
+	is($o2->escape, $shell,		$harn->cond("escape mswin harn $pni"));
+
+	last unless($o1->escape eq $shell);	# DEBUGGING
 }
 
 
