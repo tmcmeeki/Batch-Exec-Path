@@ -16,6 +16,8 @@ INSTALLATION
 
 To install this module type the following:
 
+   make -f Batch_Exec_Path.mk
+   ... or alternatively ...
    perl Makefile.PL INSTALL_BASE=~
    make
    make test
@@ -25,7 +27,10 @@ DEPENDENCIES
 
 This module requires these other modules and libraries:
 
-  blah blah blah
+  CPAN:
+	Parse::Lex
+
+  N.B. this is also done by the Batch_Exec_Path.mk makefile above.
 
 COPYRIGHT AND LICENCE
 
