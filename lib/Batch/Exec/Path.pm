@@ -857,10 +857,14 @@ sub extant {
 	return $rv;
 }
 
-=item OBJ->home([USER])
+=item OBJ->home([USER], ...)
 
 Read-only method advises a generally failsafe home directory for the current
-or specified user.
+or specified user.  Any additional arguments are assumed to be path-related
+and will be assembled to produce a path that is subordinate to the targetted
+home directory, e.g.
+
+  home('jbloggs', "foo", "bar");	# returns /home/jbloggs/foo/bar
 
 =cut
 
@@ -888,6 +892,10 @@ sub home {
 		}
 	}
 	$self->{'_home'} = $dn;
+
+	my $rv = (@_) ? $dn = File::Spec->catfile($dn, @_) : $dn;
+
+	$self->log->debug("home folder [$rv]");
 
 	return $dn;
 }
@@ -958,7 +966,7 @@ sub homes {
 			$count++;
 		}
 	}
-        $self->log->debug(sprintf "rau [%s]", Dumper($rau));
+        $self->log->trace(sprintf "rau [%s]", Dumper($rau));
 	$self->log->info("$count user home directories fetched");
 
 	return $count;

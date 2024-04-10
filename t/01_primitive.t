@@ -100,7 +100,9 @@ while (my ($user, $home) = each %{ $os2->userhome }) {
 
 	$log->debug(sprintf "user [$user] home [$home]");
 
-	is($os2->home($user), $home,	$harn->cond("home $user"));
+	is($os2->home($user), $home,	$harn->cond("home base $user"));
+
+	like($os2->home($user, qw/ foo bar /), qr/foo.bar/,	$harn->cond("home plus $user"));
 }
 $log->info(sprintf "HOME is [%s]", $os2->home);
 
